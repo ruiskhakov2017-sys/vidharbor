@@ -4,7 +4,41 @@
 
 **Стек:** Vue + TypeScript, Django + Django REST Framework, PostgreSQL, RabbitMQ, собственный Python worker, FFmpeg, HLS/hls.js, Nginx, n8n/Google Sheets, Docker Compose, OpenTelemetry, Prometheus, Grafana и Tempo. Для проверок запланированы pytest, Playwright и GitHub Actions.
 
-**Текущий этап:** документальный baseline и Plan Review. DEC-003 принят. Gate 3 открыт по проверкам ресурсов, вертикального критерия и отказоустойчивости. Gate 4 ожидает принятия плана. Команды запуска появятся после проверенного Compose. В этом baseline нет кода приложения.
+**Текущий этап:** S01. Локальная основа состоит из страницы-заглушки Vue, двух проверок Django REST Framework, PostgreSQL и RabbitMQ.
+
+## Локальный запуск S01
+
+Из корня репозитория в PowerShell 7 при запущенном Docker Desktop подготовьте отдельные локальные секреты. Команда сохраняет уже существующие файлы.
+
+```powershell
+$dir = Join-Path (Get-Location) 'secrets'
+New-Item -ItemType Directory -Force $dir | Out-Null
+foreach ($name in @('django_secret_key', 'postgres_password', 'rabbitmq_password')) {
+    $path = Join-Path $dir $name
+    if (-not (Test-Path -LiteralPath $path)) {
+        $bytes = [byte[]]::new(32)
+        [Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+        [IO.File]::WriteAllText($path, [Convert]::ToHexString($bytes))
+    }
+}
+docker compose --project-name vidharbor --env-file .env.example up --build -d --wait --wait-timeout 180
+```
+
+Откройте `http://127.0.0.1:8085/`. В [.env.example](.env.example) указаны порт, имена и путь к папке секретов. Сами файлы `secrets/` исключены из Git и передаются контейнерам через Compose. PostgreSQL и RabbitMQ доступны внутри сети проекта. Образы закреплены по digest, зависимости — в [requirements.txt](api/requirements.txt) и [package-lock.json](web/package-lock.json).
+
+| Адрес | Что проверяет | Ответ |
+|---|---|---|
+| `/health/live` | Django отвечает | `200`, `{"status":"live"}` |
+| `/health/ready` | Django выполняет `SELECT 1` и открывает канал с авторизацией в RabbitMQ | `200` при доступных зависимостях, `503` с указанием недоступной зависимости при сбое |
+
+```powershell
+curl.exe -i http://127.0.0.1:8085/health/live
+curl.exe -i http://127.0.0.1:8085/health/ready
+```
+
+Проверенные версии S01: Node.js 24.22.2, Vue 3.5.45, TypeScript 5.9.3, Vite 7.3.8, Nginx 1.30.6, Python 3.13.18, Django 5.2.19, Django REST Framework 3.16.1, PostgreSQL 16.14 и RabbitMQ 4.2.9.
+
+Остановить локальный Compose с сохранением томов: `docker compose --project-name vidharbor --env-file .env.example down`.
 
 | Артефакт | Вход / статус | Действие |
 |---|---|---|
