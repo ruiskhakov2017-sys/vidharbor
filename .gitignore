@@ -1,0 +1,44 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+secrets/
+*.pem
+*.key
+*.p12
+credentials.json
+service-account*.json
+
+# Persistent and temporary media
+/media/
+/storage/
+/volumes/
+/backups/
+/dumps/
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.m3u8
+*.m4s
+*.dump
+*.sql.gz
+
+# Tool outputs
+node_modules/
+dist/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+coverage/
+playwright-report/
+test-results/
+*.log
+*.tmp
+*.part
+.DS_Store
+Thumbs.db
