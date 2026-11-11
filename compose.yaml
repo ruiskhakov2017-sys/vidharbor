@@ -1,0 +1,90 @@
+name: vidharbor
+
+services:
+  web:
+    build: ./web
+    ports:
+      - "127.0.0.1:${VIDHARBOR_PORT:-8085}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    mem_limit: 64m
+    cpus: 0.5
+
+  api:
+    build: ./api
+    environment:
+      DB_NAME: ${VIDHARBOR_DB_NAME:-vidharbor}
+      DB_USER: ${VIDHARBOR_DB_USER:-vidharbor}
+      RABBITMQ_USER: ${VIDHARBOR_RABBITMQ_USER:-vidharbor}
+    secrets:
+      - django_secret_key
+      - postgres_password
+      - rabbitmq_password
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 192m
+    cpus: 1
+
+  db:
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    environment:
+      POSTGRES_DB: ${VIDHARBOR_DB_NAME:-vidharbor}
+      POSTGRES_USER: ${VIDHARBOR_DB_USER:-vidharbor}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+    mem_limit: 256m
+    cpus: 1
+
+  rabbitmq:
+    image: rabbitmq:4.2-alpine@sha256:dea0f5843025e0c3c1a128b14fc2e181ea59ff369e7048e6a7fbac83bd8c4f9d
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${VIDHARBOR_RABBITMQ_USER:-vidharbor}
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+S 2:2"
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        export RABBITMQ_DEFAULT_PASS="$$(cat /run/secrets/rabbitmq_password)"
+        exec docker-entrypoint.sh rabbitmq-server
+    secrets:
+      - rabbitmq_password
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /var/lib/rabbitmq/.erlang.cookie && exec su-exec rabbitmq rabbitmq-diagnostics -q check_running"]
+      start_period: 15s
+      interval: 10s
+      timeout: 8s
+      retries: 12
+    mem_limit: 512m
+    cpus: 1
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+
+secrets:
+  django_secret_key:
+    file: ${VIDHARBOR_SECRETS_DIR:-./secrets}/django_secret_key
+  postgres_password:
+    file: ${VIDHARBOR_SECRETS_DIR:-./secrets}/postgres_password
+  rabbitmq_password:
+    file: ${VIDHARBOR_SECRETS_DIR:-./secrets}/rabbitmq_password

@@ -105,20 +105,20 @@ Compose: Nginx, Django web и отдельный пул upload, PostgreSQL, Rabb
 
 [DEC-001–004](decision-log.md) фиксируют YES/NO/OPEN/MANDATORY, цену выбора и условия пересмотра. Vue и Django/DRF выбраны ради разделения клиентской практики и знакомого сервера. Локальное хранение и повтор с нуля уменьшают объём системы, увеличивают стоимость прерывания большой передачи. Поздний ack оставляет ответственность за доставку у брокера, но требует живого канала, времени обработки меньше таймаута и файловой защиты от одновременных писателей. Transactional Outbox убирает окно утраты обязательства при сбое между БД и publish ценой relay, истории и дубликатов. Внешний сервис и Sheets не входят в атомарный commit.
 
-Кандидаты версий для первого согласованного этапа:
+Версии каркаса S01 и кандидаты для следующих этапов.
 
-| Группа | Документальный базис | Что закрепить после разрешения S01 |
+| Группа | Версия S01 или кандидат | Подтверждение и следующие проверки |
 |---|---|---|
-| Backend | Python 3.13, Django 5.2 LTS, DRF 3.16+, PostgreSQL 17, psycopg 3. Django 5.2 поддерживает PostgreSQL 14+ и DRF 3.16 объявляет поддержку Django 5.2/Python 3.13. | Выбрать поддерживаемые patch-релизы с учётом security, записать exact pins, прогнать миграции и smoke. [DRF 3.16](https://www.django-rest-framework.org/community/3.16-announcement/), [Django и PostgreSQL](https://docs.djangoproject.com/en/5.2/ref/databases/). |
+| Backend | Python 3.13.18, Django 5.2.19 LTS, DRF 3.16.1, psycopg 3.2.13. В Compose закреплён PostgreSQL 16.14. В S01 использовали доступный образ 16.14 после повторных таймаутов загрузки образа 17. | Подключение к базе проверено локально и в CI. Миграции проверяются при добавлении моделей. [Протокол T102](protocols/s01-runtime.md#t102) · [Django и PostgreSQL](https://docs.djangoproject.com/en/5.2/ref/databases/). |
 | Frontend | Node 24 LTS, Vue 3, TypeScript и сборка Vite. hls.js 1.x. | Сверить `engines`, закрепить lockfile, браузеры Playwright и сборку. [Node releases](https://nodejs.org/en/about/previous-releases), [Vite](https://vite.dev/guide/), [hls.js](https://github.com/video-dev/hls.js). |
 | AMQP | RabbitMQ 4.x с поддерживаемыми quorum, ack timeout и выбранной DLX policy. Pika AMQP 0-9-1. | Точный tag/digest и версия Pika после проверки актуальной поддержки. Доказать ack timeout, подтверждения и poison DLX на фактическом образе. [RabbitMQ quorum](https://www.rabbitmq.com/docs/quorum-queues), [Pika](https://pika.readthedocs.io/). |
 | Media, edge и telemetry | Доступный поддерживаемый образ Linux/Nginx, FFmpeg с H.264/AAC, Prometheus/Grafana и Tempo с OTLP. | Закрепить образы по версиям/digest, проверить наличие кодеков, внутреннюю выдачу и сквозной trace. [FFmpeg formats](https://ffmpeg.org/ffmpeg-formats.html), [OTLP](https://opentelemetry.io/docs/specs/otlp/). |
 
-Это проверка совместимости по документации. Реальные pins, сборки и тесты относятся к S01 и последующим этапам. Образы с плавающим `latest` в воспроизводимом запуске не используются.
+Закреплённые образы, зависимости и результаты сборки каркаса приведены в [протоколе запуска S01](protocols/s01-runtime.md). Совместимость компонентов следующих этапов проверяется по мере их добавления.
 
 ## 10. Quality Requirements
 
-[RTM](requirements-traceability.md) связывает все требования с будущей проверкой. Приёмка требует двух аккаунтов и запрета чужих действий, исходника 3–5 ГБ, воспроизведения всех допустимых качеств в трёх desktop-браузерах, безопасного удаления во время обработки, реальных RabbitMQ/DLQ и восстановления после отказов. Отдельно показать строку n8n/Sheets и потерянный ответ без дубля, живой dashboard, trace и чистое восстановление данных и медиа. Ни один результат приложения пока не измерен.
+[RTM](requirements-traceability.md) связывает все требования с будущей проверкой. Приёмка требует двух аккаунтов и запрета чужих действий, исходника 3–5 ГБ, воспроизведения всех допустимых качеств в трёх desktop-браузерах, безопасного удаления во время обработки, реальных RabbitMQ/DLQ и восстановления после отказов. Отдельно показать строку n8n/Sheets и потерянный ответ без дубля, живой dashboard, trace и чистое восстановление данных и медиа. Результаты проверки каркаса приведены в [отчёте S01](testing-report.md#s01).
 
 ## 11. Risks & Technical Debt
 
