@@ -10,29 +10,90 @@ main {
   border: 1px solid #c9dce8;
   border-radius: 1rem;
   box-sizing: border-box;
-  margin: clamp(2rem, 12vh, 7rem) auto;
-  max-width: min(36rem, calc(100% - 2rem));
-  padding: clamp(1.5rem, 5vw, 3rem);
-}
-
-.stage {
-  color: #40586b;
-  margin: 0;
+  margin: clamp(1rem, 8vh, 5rem) auto;
+  max-width: min(42rem, calc(100% - 2rem));
+  padding: clamp(1.25rem, 5vw, 3rem);
 }
 
 h1 {
   font-size: clamp(2.25rem, 6vw, 3.5rem);
   line-height: 1.1;
-  margin: .35em 0;
+  margin: 0 0 1.5rem;
 }
 
-nav {
+form, label {
+  display: grid;
+  gap: .5rem;
+}
+
+form {
+  gap: 1rem;
+}
+
+input, button {
+  font: inherit;
+}
+
+input {
+  border: 1px solid #8da6b8;
+  border-radius: .4rem;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: .5rem .65rem;
+  width: 100%;
+}
+
+button {
+  background: #085d88;
+  border: 1px solid #085d88;
+  border-radius: .4rem;
+  color: white;
+  cursor: pointer;
+  padding: .45rem .85rem;
+}
+
+button.secondary {
+  background: white;
+  color: #085d88;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: .65;
+}
+
+.actions, .cabinet-header, .progress {
+  align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: .75rem 1.25rem;
-  margin-top: 1.5rem;
+  gap: .75rem;
 }
 
-a {
-  color: #085d88;
+.cabinet-header {
+  justify-content: space-between;
+}
+
+.progress progress {
+  flex: 1;
+  min-width: 7rem;
+  accent-color: #085d88;
+}
+
+.videos {
+  list-style: none;
+  padding: 0;
+}
+
+.videos li {
+  border-top: 1px solid #c9dce8;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem 1rem;
+  justify-content: space-between;
+  overflow-wrap: anywhere;
+  padding: .6rem 0;
+}
+
+[role="alert"] {
+  color: #9e2424;
 }

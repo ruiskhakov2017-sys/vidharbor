@@ -2,11 +2,13 @@
 
 Учебный видеосервис для Homework 005. Автор загружает исходник, фоновый исполнитель готовит HLS, зритель открывает ролик без регистрации. n8n записывает сведения о публикации в Google Таблицу.
 
-**Стек:** Vue + TypeScript, Django + Django REST Framework, PostgreSQL, RabbitMQ, собственный Python worker, FFmpeg, HLS/hls.js, Nginx, n8n/Google Sheets, Docker Compose, OpenTelemetry, Prometheus, Grafana и Tempo. Базовые проверки Compose запускаются через GitHub Actions. pytest и Playwright запланированы на S07.
+**Стек:** Vue + TypeScript, Django + Django REST Framework, PostgreSQL, RabbitMQ, собственный Python worker, FFmpeg, HLS/hls.js, Nginx, n8n/Google Sheets, Docker Compose, OpenTelemetry, Prometheus, Grafana и Tempo. Базовые проверки Compose запускаются через GitHub Actions. Полный набор CI запланирован на S07.
 
-**Текущий этап:** S01. Локальная основа состоит из страницы-заглушки Vue, двух проверок Django REST Framework, PostgreSQL и RabbitMQ.
+**Текущий этап** — S02. В локальном кабинете можно зарегистрироваться, войти и загрузить видео. После проверки оригинал сохраняется в закрытом томе, а задание и запись outbox — в PostgreSQL. Отправка из outbox начнётся на S03.
 
-## Локальный запуск S01
+[Протокол локальных проверок S02](docs/homework-05/protocols/s02-auth-upload.md).
+
+## Локальный запуск
 
 Из корня репозитория в PowerShell 7 при запущенном Docker Desktop подготовьте отдельные локальные секреты. Команда сохраняет уже существующие файлы.
 
@@ -25,6 +27,10 @@ docker compose --project-name vidharbor --env-file .env.example up --build -d --
 ```
 
 Откройте `http://127.0.0.1:8085/`. В [.env.example](.env.example) указаны порт, имена и путь к папке секретов. Сами файлы `secrets/` исключены из Git и передаются контейнерам через Compose. PostgreSQL и RabbitMQ доступны внутри сети проекта. Образы закреплены по digest, зависимости — в [requirements.txt](api/requirements.txt) и [package-lock.json](web/package-lock.json).
+
+При первом запуске Compose применяет миграции PostgreSQL. Откройте экран входа, создайте аккаунт, войдите и выберите MP4, MOV, MKV или WebM. Лимит по умолчанию — 5 ГиБ. В кабинете видны ход передачи и статус «Ожидает обработки». При обрыве начните передачу заново. Если пропал ответ на завершение, нажмите «Повторить проверку».
+
+Оригиналы и временные части находятся в томе `media_data`, который не подключён к Nginx. Незавершённые части удаляются после 24 часов без активности. Для проверки граничных размеров на небольших образцах задайте `VIDHARBOR_MAX_UPLOAD_BYTES` на отдельном тестовом стенде.
 
 | Адрес | Что проверяет | Ответ |
 |---|---|---|
