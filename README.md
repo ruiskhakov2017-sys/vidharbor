@@ -2,7 +2,7 @@
 
 Учебный видеосервис для Homework 005. Автор загружает исходник, фоновый исполнитель готовит HLS, зритель открывает ролик без регистрации. n8n записывает сведения о публикации в Google Таблицу.
 
-**Стек:** Vue + TypeScript, Django + Django REST Framework, PostgreSQL, RabbitMQ, собственный Python worker, FFmpeg, HLS/hls.js, Nginx, n8n/Google Sheets, Docker Compose, OpenTelemetry, Prometheus, Grafana и Tempo. Для проверок запланированы pytest, Playwright и GitHub Actions.
+**Стек:** Vue + TypeScript, Django + Django REST Framework, PostgreSQL, RabbitMQ, собственный Python worker, FFmpeg, HLS/hls.js, Nginx, n8n/Google Sheets, Docker Compose, OpenTelemetry, Prometheus, Grafana и Tempo. Базовые проверки Compose запускаются через GitHub Actions. pytest и Playwright запланированы на S07.
 
 **Текущий этап:** S01. Локальная основа состоит из страницы-заглушки Vue, двух проверок Django REST Framework, PostgreSQL и RabbitMQ.
 

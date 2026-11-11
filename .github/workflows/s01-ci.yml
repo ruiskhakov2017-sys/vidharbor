@@ -1,0 +1,51 @@
+name: S01 Compose smoke
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: s01-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  compose-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      COMPOSE_PROJECT_NAME: vidharbor-ci
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Prepare test credentials
+        run: |
+          umask 077
+          mkdir secrets
+          for name in django_secret_key postgres_password rabbitmq_password; do
+            openssl rand -hex 32 > "secrets/$name"
+            chmod 0444 "secrets/$name"
+          done
+
+      - name: Build and start Compose
+        run: |
+          docker compose --env-file .env.example config --quiet
+          docker compose --env-file .env.example up --build -d --wait --wait-timeout 180
+
+      - name: Check page and dependency failures
+        run: python3 scripts/smoke_s01.py
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose --env-file .env.example logs --no-color --tail 80
+
+      - name: Remove the CI stack
+        if: always()
+        run: |
+          if [ -f compose.yaml ] && [ -d secrets ]; then
+            docker compose --env-file .env.example down --volumes --remove-orphans
+          fi
