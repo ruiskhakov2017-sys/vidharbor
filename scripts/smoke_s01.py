@@ -48,7 +48,8 @@ def check_health(label, *, postgres=True, rabbitmq=True):
 def check_page():
     browser = subprocess.run(
         [
-            "google-chrome", "--headless", "--no-sandbox", "--disable-dev-shm-usage",
+            os.getenv("VIDHARBOR_CHROME", "google-chrome"), "--headless", "--no-sandbox",
+            "--disable-dev-shm-usage", "--virtual-time-budget=6000",
             "--disable-background-networking", "--dump-dom", BASE_URL + "/",
         ],
         capture_output=True,
@@ -56,9 +57,9 @@ def check_page():
         check=True,
         timeout=30,
     )
-    if 'data-testid="s01-placeholder"' not in browser.stdout:
-        raise RuntimeError("Chrome did not render the Vue placeholder")
-    print("Chrome rendered the Vue placeholder.", flush=True)
+    if 'data-testid="auth-screen"' not in browser.stdout:
+        raise RuntimeError("Chrome did not render the Vue sign-in screen")
+    print("Chrome rendered the Vue sign-in screen.", flush=True)
 
 
 def main():

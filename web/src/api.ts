@@ -1,0 +1,52 @@
+export type Session = { username: string | null; csrf_token: string };
+export type Video = { id: string; title: string; state: string };
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly retryAfter: boolean = false,
+  ) {
+    super(message);
+  }
+}
+
+export async function api<T>(
+  path: string,
+  options?: { csrf: string; data?: object },
+): Promise<T> {
+  const response = await fetch(path, options ? {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRFToken": options.csrf },
+    body: JSON.stringify(options.data ?? {}),
+  } : undefined);
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = body?.error ?? "Сервис вернул ошибку. Повторите запрос.";
+    throw new ApiError(message, response.status, response.headers.has("Retry-After"));
+  }
+  return body as T;
+}
+
+export function sendFile(id: string, file: File, csrf: string, onProgress: (percent: number) => void) {
+  return new Promise<void>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("PUT", "/api/uploads/" + id + "/content");
+    request.responseType = "json";
+    request.setRequestHeader("Content-Type", "application/octet-stream");
+    request.setRequestHeader("X-CSRFToken", csrf);
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(Math.floor((event.loaded * 100) / event.total));
+    };
+    request.onload = () => {
+      if (request.status >= 200 && request.status < 300) {
+        resolve();
+      } else {
+        reject(new ApiError(request.response?.error ?? "Файл не передан. Повторите загрузку.", request.status));
+      }
+    };
+    request.onerror = () => reject(new Error("Передача прервалась. Загрузите файл заново."));
+    request.onabort = () => reject(new Error("Передача прервалась. Загрузите файл заново."));
+    request.send(file);
+  });
+}
