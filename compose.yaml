@@ -15,10 +15,11 @@ x-django: &django
     - rabbitmq_password
 
 x-django-health: &django-health
-  test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2).close()"]
-  interval: 5s
-  timeout: 3s
-  retries: 10
+  test: ["CMD", "wget", "-q", "-T", "6", "-O", "/dev/null", "http://127.0.0.1:8000/health/live"]
+  interval: 8s
+  timeout: 12s
+  start_period: 45s
+  retries: 8
 
 services:
   web:
@@ -81,6 +82,16 @@ services:
     mem_limit: 96m
     cpus: 0.25
 
+  relay:
+    <<: *django
+    command: ["python", "manage.py", "relay_outbox"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: on-failure
+    mem_limit: 128m
+    cpus: 0.5
+
   db:
     image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     environment:
@@ -109,20 +120,18 @@ services:
       RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+S 2:2"
     entrypoint:
       - /bin/sh
-      - -ec
-      - |
-        export RABBITMQ_DEFAULT_PASS="$$(cat /run/secrets/rabbitmq_password)"
-        exec docker-entrypoint.sh rabbitmq-server
+      - /usr/local/bin/vidharbor-rabbitmq-init
     secrets:
       - rabbitmq_password
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+      - ./config/rabbitmq-entrypoint.sh:/usr/local/bin/vidharbor-rabbitmq-init:ro
     healthcheck:
-      test: ["CMD-SHELL", "test -s /var/lib/rabbitmq/.erlang.cookie && exec su-exec rabbitmq rabbitmq-diagnostics -q check_running"]
-      start_period: 15s
-      interval: 10s
-      timeout: 8s
-      retries: 12
+      test: ["CMD-SHELL", "test -f /tmp/vidharbor-policy-ready && exec su-exec rabbitmq rabbitmq-diagnostics -q check_running"]
+      start_period: 120s
+      interval: 15s
+      timeout: 20s
+      retries: 8
     mem_limit: 512m
     cpus: 1
 

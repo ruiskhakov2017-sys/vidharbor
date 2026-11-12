@@ -40,15 +40,40 @@ class Video(models.Model):
 
 
 class Job(models.Model):
+    class State(models.TextChoices):
+        QUEUED = "QUEUED"
+        PROCESSING = "PROCESSING"
+        RETRY_WAIT = "RETRY_WAIT"
+        FAILED = "FAILED"
+        SUCCEEDED = "SUCCEEDED"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     video = models.ForeignKey(Video, on_delete=models.PROTECT)
     generation = models.PositiveIntegerField()
-    state = models.CharField(max_length=12, choices=Video.State, default=Video.State.QUEUED)
+    state = models.CharField(max_length=12, choices=State, default=State.QUEUED)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["video", "generation"], name="unique_video_job")
         ]
+
+
+class Attempt(models.Model):
+    class State(models.TextChoices):
+        RUNNING = "RUNNING"
+        SUCCEEDED = "SUCCEEDED"
+        RETRY = "RETRY"
+        FAILED = "FAILED"
+
+    job = models.ForeignKey(Job, on_delete=models.PROTECT, related_name="attempts")
+    number = models.PositiveSmallIntegerField()
+    state = models.CharField(max_length=12, choices=State)
+    started_at = models.DateTimeField(default=timezone.now)
+    finished_at = models.DateTimeField(null=True)
+    reason = models.CharField(max_length=80, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["job", "number"], name="unique_job_attempt")]
 
 
 class Outbox(models.Model):
