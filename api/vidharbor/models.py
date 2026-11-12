@@ -91,3 +91,47 @@ class Outbox(models.Model):
                 fields=["job", "kind", "attempt_no"], name="unique_outbox_attempt"
             )
         ]
+
+
+class ReadyEvent(models.Model):
+    """Immutable publication snapshot, supplied by S04 in its READY transaction."""
+
+    event_id = models.UUIDField(primary_key=True, editable=False)
+    video = models.ForeignKey(Video, on_delete=models.PROTECT)
+    generation = models.PositiveIntegerField()
+    sheet_row = models.PositiveIntegerField(unique=True)
+    payload = models.JSONField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["video", "generation"], name="unique_ready_generation"),
+            models.CheckConstraint(condition=models.Q(sheet_row__gte=2), name="ready_row_after_header"),
+        ]
+
+
+class Delivery(models.Model):
+    class State(models.TextChoices):
+        PENDING = "PENDING"
+        SENDING = "SENDING"
+        WRITTEN = "WRITTEN"
+        FAILED = "FAILED"
+        BLOCKED = "BLOCKED"
+        CANCELLED = "CANCELLED"
+
+    event = models.OneToOneField(ReadyEvent, primary_key=True, on_delete=models.PROTECT)
+    state = models.CharField(max_length=12, choices=State, default=State.PENDING)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    total_attempts = models.PositiveIntegerField(default=0)
+    started_at = models.DateTimeField(null=True)
+    due_at = models.DateTimeField(default=timezone.now)
+    lease_until = models.DateTimeField(null=True)
+    token = models.UUIDField(null=True)
+    reason = models.CharField(max_length=80, blank=True)
+
+
+class ReceiverRow(models.Model):
+    """Durable, serialized rows for the isolated TEST receiver, never Sheets."""
+
+    number = models.PositiveIntegerField(primary_key=True)
+    event_id = models.UUIDField(null=True)
+    payload = models.JSONField(null=True)

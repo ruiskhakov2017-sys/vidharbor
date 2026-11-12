@@ -1,6 +1,6 @@
 # VidHarbor — план разработки
 
-**S01 и S02 выполнены.** Пакет DEC-003 принят. [План S02](implementation-plan-s02.md) · [Локальные результаты S02](homework-05/protocols/s02-auth-upload.md). S03 ждёт отдельного разрешения.
+**S01, S02 и S03 выполнены; S03 в main.** Пакет DEC-003 принят. [План S02](implementation-plan-s02.md) · [Локальные результаты S02](homework-05/protocols/s02-auth-upload.md) · [План S06](implementation-plan-s06.md). Сквозная проверка S06 требует плейлиста S04 и правил удаления S05.
 
 ## 1. Основа и границы проекта
 
