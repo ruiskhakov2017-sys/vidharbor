@@ -4,9 +4,9 @@
 
 **Стек:** Vue + TypeScript, Django + Django REST Framework, PostgreSQL, RabbitMQ, собственный Python worker, FFmpeg, HLS/hls.js, Nginx, n8n/Google Sheets, Docker Compose, OpenTelemetry, Prometheus, Grafana и Tempo. Базовые проверки Compose запускаются через GitHub Actions. Полный набор CI запланирован на S07.
 
-**Текущий этап** — S02. В локальном кабинете можно зарегистрироваться, войти и загрузить видео. После проверки оригинал сохраняется в закрытом томе, а задание и запись outbox — в PostgreSQL. Отправка из outbox начнётся на S03.
+**Текущий этап** — S03. После загрузки оригинал сохраняется в закрытом томе, а задание и запись outbox — в PostgreSQL. Relay доставляет задания в RabbitMQ. При обычном запуске задания ждут обработчика S04. Тестовый обработчик S03 запускается отдельно на изолированном стенде.
 
-[Протокол локальных проверок S02](docs/homework-05/protocols/s02-auth-upload.md).
+[Протокол локальных проверок S02](docs/homework-05/protocols/s02-auth-upload.md) · [Результаты S03](docs/homework-05/testing-report.md#s03).
 
 ## Локальный запуск
 
