@@ -1,0 +1,1703 @@
+VIDHARBOR — S05: ВСЕ ИЗМЕНЕНИЯ ДЛЯ СОГЛАСОВАНИЯ
+
+Коммит реализации: cb0fe48fdff521dd2e35ec4fc529a1eb0f3b36f0
+База: f120ac27ba8541bfdbc3af424e287f0662a9890f (main с S03)
+Ветка реализации: feature/s05-rename (локальная)
+
+СОДЕРЖАНИЕ
+1. Описание и результаты проверок.
+2. Список всех добавленных и изменённых файлов.
+3. Полный diff относительно базы.
+4. Полное итоговое содержимое каждого файла.
+
+ОПИСАНИЕ
+План S05 учитывает S03 в main и зависимость сквозных проверок от S04.
+Ручной повтор в плане связан с исходным failed job_id, включая поздний повтор
+после ошибки нового задания. Удаление закрывает доступ коммитом DELETING до
+ожидания FFmpeg и блокировки. Проверка восстановления старой БД относится
+к T802, внешний сценарий уведомления — после T602.
+Реализовано переименование в API и кабинете: владелец, CSRF, валидация,
+сохранение ID, поколения, метаданных оригинала, задания и outbox.
+Повтор обработки, удаление и HLS ещё не реализованы — ждут S04.
+
+ПРОВЕРЕНО
+14 тестов Django, включая 5 новых — PASS.
+TypeScript/Vite — PASS.
+Chromium: сохранение, отмена, перезагрузка, повтор после ошибки,
+безопасный вывод HTML, запрет чужого запроса и CSRF — PASS.
+Миграций схемы нет. Подробные границы проверки приведены в протоколе ниже.
+
+СПИСОК ФАЙЛОВ
+1. api/vidharbor/test_videos.py
+2. api/vidharbor/urls.py
+3. api/vidharbor/videos.py
+4. docs/homework-05/protocols/s05-rename.md
+5. docs/homework-05/requirements-traceability.md
+6. docs/homework-05/testing-report.md
+7. docs/implementation-plan-s05.md
+8. scripts/smoke_s05_rename.py
+9. tasks.md
+10. web/src/main.ts
+11. web/src/style.css
+
+================================================================================
+ПОЛНЫЙ DIFF
+================================================================================
+diff --git a/api/vidharbor/test_videos.py b/api/vidharbor/test_videos.py
+new file mode 100644
+index 0000000..f504b8d
+--- /dev/null
++++ b/api/vidharbor/test_videos.py
+@@ -0,0 +1,87 @@
++import uuid
++
++from django.contrib.auth import get_user_model
++from django.test import Client, TestCase
++
++from .models import Job, Outbox, Upload, Video
++
++
++class RenameVideoTests(TestCase):
++    def setUp(self):
++        self.owner = get_user_model().objects.create_user(username="owner")
++        self.other = get_user_model().objects.create_user(username="other")
++        self.upload = Upload.objects.create(
++            owner=self.owner, title="Оригинал", expected_size=123, size=123,
++            sha256="a" * 64, state=Upload.State.COMPLETE,
++        )
++        self.video = Video.objects.create(owner=self.owner, upload=self.upload, title="Прежнее")
++        self.job = Job.objects.create(video=self.video, generation=self.video.generation)
++        self.outbox = Outbox.objects.create(
++            job=self.job, kind="video.transcode.v1", attempt_no=1, payload={"title": "Прежнее"},
++        )
++        self.url = f"/api/videos/{self.video.id}/rename"
++        self.client = Client(enforce_csrf_checks=True)
++        self.login(self.owner)
++
++    def login(self, user):
++        self.client.force_login(user)
++        token = self.client.get("/api/auth/session").json()["csrf_token"]
++        self.headers = {"X-CSRFToken": token}
++
++    def rename(self, title, url=None):
++        return self.client.post(
++            url or self.url, {"title": title}, content_type="application/json", headers=self.headers,
++        )
++
++    def test_rename_preserves_identity_original_and_processing(self):
++        before_video = Video.objects.values().get(pk=self.video.pk)
++        before_upload = Upload.objects.values().get(pk=self.upload.pk)
++        before_job = Job.objects.values().get(pk=self.job.pk)
++        before_outbox = Outbox.objects.values().get(pk=self.outbox.pk)
++        for _ in range(2):
++            response = self.rename("  Новое название  ")
++            self.assertEqual(response.status_code, 200)
++            self.assertEqual(response.json()["id"], str(self.video.pk))
++            self.assertEqual(response.json()["title"], "Новое название")
++        self.assertEqual(
++            Video.objects.values().get(pk=self.video.pk), {**before_video, "title": "Новое название"},
++        )
++        self.assertEqual(Upload.objects.values().get(pk=self.upload.pk), before_upload)
++        self.assertEqual(Job.objects.values().get(pk=self.job.pk), before_job)
++        self.assertEqual(Outbox.objects.values().get(pk=self.outbox.pk), before_outbox)
++        self.assertEqual((Video.objects.count(), Job.objects.count(), Outbox.objects.count()), (1, 1, 1))
++        self.assertEqual(self.client.get("/api/videos").json()["videos"][0]["title"], "Новое название")
++
++    def test_other_author_cannot_rename_or_list_video(self):
++        self.login(self.other)
++        self.assertEqual(self.client.get("/api/videos").json(), {"videos": []})
++        self.assertEqual(self.rename("Чужое").status_code, 404)
++        self.video.refresh_from_db()
++        self.assertEqual(self.video.title, "Прежнее")
++
++    def test_requires_session_and_csrf(self):
++        response = self.client.post(self.url, {"title": "Без CSRF"}, content_type="application/json")
++        self.assertEqual(response.status_code, 403)
++        self.client.logout()
++        token = self.client.get("/api/auth/session").json()["csrf_token"]
++        self.headers = {"X-CSRFToken": token}
++        self.assertEqual(self.rename("Без входа").status_code, 401)
++        self.video.refresh_from_db()
++        self.assertEqual(self.video.title, "Прежнее")
++
++    def test_validation_and_missing_video(self):
++        for title in (None, 123, [], {}, "", "   ", "a" * 201, "bad\0title"):
++            with self.subTest(title=title):
++                self.assertEqual(self.rename(title).status_code, 400)
++        self.video.refresh_from_db()
++        self.assertEqual(self.video.title, "Прежнее")
++        self.assertEqual(self.rename("я" * 200).status_code, 200)
++        self.assertEqual(self.rename("Название", f"/api/videos/{uuid.uuid4()}/rename").status_code, 404)
++        self.assertEqual(self.client.get(self.url).status_code, 405)
++
++    def test_invalid_request_body(self):
++        for body in ("{", "[]", "null"):
++            self.assertEqual(self.client.post(
++                self.url, body, content_type="application/json", headers=self.headers,
++            ).status_code, 400)
++        self.assertEqual(self.client.post(self.url, {"title": "form"}, headers=self.headers).status_code, 400)
+diff --git a/api/vidharbor/urls.py b/api/vidharbor/urls.py
+index aaa9dfc..6b2c42d 100644
+--- a/api/vidharbor/urls.py
++++ b/api/vidharbor/urls.py
+@@ -1,6 +1,6 @@
+ from django.urls import path
+ 
+-from . import accounts, health, uploads
++from . import accounts, health, uploads, videos
+ 
+ urlpatterns = [
+     path("health/live", health.live, name="live"),
+@@ -10,6 +10,7 @@ urlpatterns = [
+     path("api/auth/login", accounts.sign_in),
+     path("api/auth/logout", accounts.sign_out),
+     path("api/videos", uploads.videos),
++    path("api/videos/<uuid:video_id>/rename", videos.rename),
+     path("api/uploads", uploads.create_upload),
+     path("api/uploads/<uuid:upload_id>", uploads.upload_info),
+     path("api/uploads/<uuid:upload_id>/content", uploads.receive_upload),
+diff --git a/api/vidharbor/videos.py b/api/vidharbor/videos.py
+new file mode 100644
+index 0000000..f70485a
+--- /dev/null
++++ b/api/vidharbor/videos.py
+@@ -0,0 +1,24 @@
++from django.db import transaction
++from django.http import JsonResponse
++from django.shortcuts import get_object_or_404
++from django.views.decorators.cache import never_cache
++from django.views.decorators.http import require_POST
++
++from .accounts import error, json_object, require_author
++from .models import Video
++
++
++@require_POST
++@never_cache
++@require_author
++def rename(request, video_id):
++    with transaction.atomic():
++        video = get_object_or_404(
++            Video.objects.select_for_update(), id=video_id, owner=request.user,
++        )
++        title = json_object(request).get("title")
++        if not isinstance(title, str) or not 1 <= len(title.strip()) <= 200 or "\0" in title:
++            return error("Введите название длиной от 1 до 200 символов.", 400)
++        video.title = title.strip()
++        video.save(update_fields=["title"])
++    return JsonResponse({"id": video.id, "title": video.title, "state": video.state})
+diff --git a/docs/homework-05/protocols/s05-rename.md b/docs/homework-05/protocols/s05-rename.md
+new file mode 100644
+index 0000000..ac6053a
+--- /dev/null
++++ b/docs/homework-05/protocols/s05-rename.md
+@@ -0,0 +1,44 @@
++# S05 · Переименование и права владельца
++
++12 ноября 2026 года. Ветка `feature/s05-rename`, база `origin/main` / `f120ac2` (S03). Проверена самостоятельная часть T501; весь этап S05 не завершён. [План](../../implementation-plan-s05.md).
++
++## Изменение
++
++`POST /api/videos/{video_id}/rename`, JSON `{"title":"Новое название"}`. Требуются сессия владельца и CSRF. Успех — 200 с `id`, `title`, `state`; неверное название — 400, отсутствие сессии — 401, CSRF — 403, чужой или отсутствующий ID — 404. Разрешено 1–200 символов после обрезки пробелов, NUL запрещён. Меняется только Video.title под блокировкой строки, без миграций, новой обработки и изменения исходной Upload.
++
++Кабинет позволяет открыть форму, сохранить или отменить изменение. Ошибка сохраняет введённое значение для повтора. Название выводится текстом.
++
++## Проверки
++
++Отдельный Compose-проект `vidharbor-s05`, тестовые тома, порт 8086. PostgreSQL 16, RabbitMQ 4.2 и FFmpeg из закреплённых в проекте образов. API и upload собраны из текущего кода.
++
++Особенности облачной среды вынесены за checkout в `/workspace/vidharbor-cloud`: Dockerfile для сборки монтирует системный CA для pip/npm/apk и разрешает чтение скопированного кода UID 65532. Исходные Dockerfile не менялись. BusyBox wget из healthcheck использовал облачный proxy для локального запроса и получал 403; локальный override `s05-health.json` заменил эту проверку на Python urllib. API напрямую отвечал 200. Эти настройки не меняют логику приложения.
++
++Выполненные команды из корня репозитория:
++
++```sh
++VIDHARBOR_PORT=8086 COMPOSE_PARALLEL_LIMIT=2 docker compose -p vidharbor-s05 --env-file .env.example -f compose.yaml -f /workspace/vidharbor-cloud/compose.json build api upload web migrate
++VIDHARBOR_PORT=8086 docker compose -p vidharbor-s05 --env-file .env.example -f compose.yaml -f /workspace/vidharbor-cloud/s05-health.json up -d --wait --wait-timeout 120 db rabbitmq migrate api upload web
++docker compose -p vidharbor-s05 --env-file .env.example run --rm --no-deps upload python manage.py test vidharbor -v 2
++docker compose -p vidharbor-s05 --env-file .env.example run --rm --no-deps api python manage.py makemigrations --check --dry-run
++COMPOSE_PROJECT_NAME=vidharbor-s05 VIDHARBOR_PORT=8086 VIDHARBOR_CHROME=/usr/bin/chromium python3 scripts/smoke_s05_rename.py
++curl -fsS --max-time 5 http://127.0.0.1:8086/health/ready
++```
++
++| Проверка | Результат |
++|---|---|
++| TypeScript/Vite, `npm run build` из `web/` | PASS |
++| Django `test vidharbor` | PASS: 14 тестов, включая 5 новых RenameVideoTests |
++| Миграции на новой тестовой базе | PASS: тестовая БД создана, миграции применены, БД удалена после тестов |
++| `makemigrations --check --dry-run` | PASS: No changes detected |
++| Сохранение ID, поколения, Upload, Job и Outbox при повторе переименования | PASS: сравнение записей в тестах |
++| Два автора, чужой прямой запрос, сессия, CSRF | PASS: Django и браузерный сценарий |
++| Пустое/нестроковое/длинное название, NUL, неверное тело запроса, граница 200 символов | PASS: Django |
++| Сохранение и перезагрузка, отмена, ошибка 503 и повтор с сохранённым текстом | PASS: Chromium/Playwright, реальный API; 503 внедрён маршрутом браузера |
++| HTML в названии не создаёт DOM-элемент и не выполняется | PASS: Chromium |
++| `/health/ready` | 200, postgres=true, rabbitmq=true |
++| Каталог, поиск, прежняя ссылка и воспроизведение | Not Run: требуют S04 |
++| Ручной повтор, удаление и гонки FFmpeg | Not Run: запланированы после S04 |
++| Отмена внешнего уведомления / восстановление старой БД | Not Run: после T602 / в T802 |
++
++Браузерный сценарий создаёт два тестовых аккаунта и QUEUED-видео с префиксом S05 прямо в тестовой БД. Физического оригинала у этой браузерной фикстуры нет: проверяются переименование и кабинет, а не загрузка или публикация. Скрипт оставляет фикстуры для осмотра; запускать только на одноразовом тестовом проекте. Тесты сохранения оригинала проверяют неизменность его метаданных; фактическая целостность HLS и ссылки остаётся проверкой S04.
+diff --git a/docs/homework-05/requirements-traceability.md b/docs/homework-05/requirements-traceability.md
+index d55ea0b..0112ba2 100644
+--- a/docs/homework-05/requirements-traceability.md
++++ b/docs/homework-05/requirements-traceability.md
+@@ -19,7 +19,7 @@
+ | FR-005 | Каталог и поиск | design §§5–6, PRD §6 | S04 / T403 | AC-004 | Не выполнено |
+ | FR-006 | Страница и плеер | design §§5–6, PRD §6 | S04 / T403, S04 / T404 | AC-003, AC-004 | Не выполнено |
+ | FR-007 | Один master | design §§5–6, PRD §6 | S04 / T403 | AC-003 | Не выполнено |
+-| FR-008 | Переименование и удаление | design §§5–6, PRD §6 | S05 / T501, S05 / T502 | AC-005 | Не выполнено |
++| FR-008 | Переименование и удаление | design §§5–6, PRD §6 | S05 / T501, S05 / T502 | AC-005 | Частично. Переименование в API и кабинете, права владельца и CSRF проверены. Каталог, поиск, ссылка и удаление ждут S04. [S05](protocols/s05-rename.md) |
+ | FR-009 | Состояния в кабинете | design §§5–6, PRD §6 | S02 / T203, S03 / T302, S04 / T403 | AC-002, AC-006 | Частично. Кабинет показывает ожидание обработки после принятия файла. [S02](testing-report.md#s02) |
+ | FR-010 | Ручной повтор оригинала | design §§5–6, PRD §6 | S05 / T501 | AC-006 | Не выполнено |
+ | FR-011 | Webhook по готовности | design §§5–6, PRD §6 | S06 / T602 | AC-007 | Не выполнено |
+diff --git a/docs/homework-05/testing-report.md b/docs/homework-05/testing-report.md
+index c0b0827..bb04630 100644
+--- a/docs/homework-05/testing-report.md
++++ b/docs/homework-05/testing-report.md
+@@ -35,3 +35,7 @@
+ Регрессия локального Compose прошла. Chrome проверил путь двух авторов до принятого видео. После запуска relay в очереди было два задания и ноль потребителей. При остановке каждой зависимости live оставался 200, ready менялся с 200 на 503 и обратно. Все 8 тестов Django прошли. [Протокол регрессии](protocols/s03-t302-t304.md#регрессия-s01-и-s02).
+ 
+ Регрессия T304 подтвердила, что после длительного сбоя PostgreSQL тот же worker возобновляет получение заданий. Три разрыва канала и таймаут ожидания блокировки не создали попыток. Попытку начала только действующая доставка. [Протокол](protocols/t304-recovery-regression.md).
++
++## S05 · Переименование, частичная реализация
++
++В ветке `feature/s05-rename` на базе S03 проверены переименование в кабинете и API, два автора, отказ чужого запроса, CSRF, валидация и сохранение ID, поколения, метаданных оригинала, задания и outbox. Все 14 тестов Django прошли (5 новых); сборка TypeScript/Vite и браузерный сценарий Chromium прошли. Проверки каталога, поиска и HLS ждут S04; повтор обработки и удаление ещё не реализованы. [Команды и границы проверки](protocols/s05-rename.md).
+diff --git a/docs/implementation-plan-s05.md b/docs/implementation-plan-s05.md
+new file mode 100644
+index 0000000..2bdab8c
+--- /dev/null
++++ b/docs/implementation-plan-s05.md
+@@ -0,0 +1,77 @@
++# S05 · Управление своими видео
++
++**Статус · План для согласования.** S03 уже в `main` (merge `f120ac2`). Для сквозных проверок S05 нужен результат S04. Сейчас можно выполнить переименование в кабинете и проверки прав владельца; повтор обработки, удаление при живом FFmpeg и отзыв HLS подключаются к фактическому коду S04.
++
++Основание: [T501–T503](../tasks.md#s05--управление-своими-видео), [FR-008, FR-010 и AC-005–006](product-spec.md), [контракты надёжности](homework-05/reliability.md).
++
++## Порядок и границы
++
++1. Переименование через API и кабинет, права владельца, CSRF, валидация и сохранение идентичности видео. Эта часть доступна на базе S03.
++2. После S04 — интеграция нового названия с каталогом, поиском и страницей; ручной повтор из оригинала с новым поколением.
++3. После S04 — логическое удаление, отзыв выдачи, остановка FFmpeg и повторяемая очистка под общей блокировкой S04.
++4. Проверки гонок, перезапуска и устойчивой отметки удаления.
++5. После T602 — внешний сценарий отмены уведомления. В T802 — проверка журнала удалений при восстановлении старой резервной копии.
++
++Проверки с остановкой процессов и удалением проводить в отдельном проекте Compose с тестовыми томами. Не закрывать весь T501 только по результату переименования и весь T503 до зависимых сценариев.
++
++## T501 · Переименование
++
++- Добавить команду переименования с проверкой сессии, CSRF и владельца. Для чужого и отсутствующего ID возвращать одинаковый отказ. Принимать непустое строковое название до 200 символов после обрезки пробелов, отклонять NUL.
++- Менять только название Video. Сохранить ID, ссылку, поколение, оригинал, задания и outbox. Название первоначальной загрузки и снимки уже созданных событий не переписывать.
++- Добавить редактирование, сохранение, отмену, состояние ожидания и ошибку в кабинете. Сохранять введённый текст при ошибке. Выводить название текстом, без исполнения HTML.
++- Проверить два аккаунта, прямой чужой запрос, отсутствие сессии и CSRF, границы длины, неверный JSON и повтор одинакового запроса.
++- После S04 проверить новое название в каталоге, поиске и странице просмотра, прежнюю ссылку и воспроизведение. Под общей блокировкой строки Video отклонять переименование после DELETING; согласовать порядок с удалением.
++
++## T501 · Ручной повтор из оригинала
++
++- Разрешать повтор владельцу после окончательного устранимого сбоя. Отказ для повреждённого или неподдерживаемого оригинала объясняет необходимость загрузить исправный файл. Не принимать повтор для активного, готового или удаляемого видео.
++- **Привязать запрос к конкретному неудачному job_id**, а не только к video_id и текущему состоянию. Сохранить устойчивую связь исходного неудачного задания с созданным заданием следующего поколения; защитить связь уникальным ограничением БД.
++- После проверки владельца сначала искать уже принятый повтор для этого исходного job_id. Если он существует, вернуть именно созданное задание и его текущее состояние, даже если оно уже завершилось новой ошибкой. Старый запрос не создаёт следующее поколение. Для повтора новой ошибки автор явно адресует новый failed job_id.
++- Проверить оригинал под файловой защитой S04, без долгой транзакции на время чтения/хэширования. В короткой транзакции повторно проверить состояние и поколение, создать новое поколение, job, связь повтора и outbox атомарно. Сохранить ID видео, URL, байты оригинала и историю прежних попыток.
++- Два параллельных запроса одного исходного job_id возвращают одно задание. Повтор публикации сообщения сохраняет message_id. Недоступность RabbitMQ не теряет принятое обязательство из outbox.
++- Обработку выполнить механизмом S03–S04. Старое поколение не получает право писать или публиковать. Бюджет попыток нового задания ведётся отдельно.
++- В кабинете показать допустимость повтора и переходы состояний. Сбой доставки уведомления не разрешает повторную конвертацию.
++
++Обязательные проверки:
++
++1. Вызвать устранимый сбой, исправить причину, повторить и получить READY без передачи файла. Сверить ID видео, URL и SHA-256 оригинала.
++2. Дважды и параллельно отправить запрос с одним failed job_id: одно новое поколение, один job и одно обязательство outbox.
++3. Потерять ответ первого запроса. Дождаться, пока созданное им задание тоже завершится FAILED. Повторить **старый** запрос: возвращён тот же job, новых поколения и outbox нет. Явный запрос с новым failed job_id может создать следующее поколение.
++4. Проверить чужой запрос, удаление одновременно с повтором, старое сообщение, недоступный брокер и повреждённый оригинал.
++
++## T502 · Отзыв доступа до ожидания FFmpeg
++
++**Транзакция удаления не ждёт FFmpeg и не ждёт файловую блокировку S04.** Под короткой блокировкой строки Video проверить владельца, записать устойчивую отметку удаления, установить DELETING, отозвать поколение и сохранить обязательство очистки. Отменить ожидающие уведомления, когда их модель появится в S06. Повтор удаления безопасен.
++
++Только **после коммита** остановить группу процессов FFmpeg и дождаться общей блокировки S04 для уборки. Новый запрос к странице, каталогу, master, вариантам и сегментам уже должен отклоняться, даже если процесс ещё завершает работу или блокировка занята. Проверка разрешения не должна ждать блокировку уборки. При недоступной БД выдача закрывается.
++
++Остановка и уборка:
++
++- Отправить сигнал группе FFmpeg, после ограниченного ожидания — принудительное завершение. Доказать отсутствие писателя; при неопределённости не запускать конкурентную уборку и сохранить диагностируемый DELETING.
++- Под общей стабильной блокировкой S04 повторно проверить удаление и убрать оригинал, временные файлы, processing и ready. Не удалять активный lock-файл и не менять порядок блокировок вопреки S04.
++- Отсутствующие файлы считать нормальным результатом повторной уборки. При ошибке оставить доступ закрытым, обязательство сохранённым и выполнить повтор после исправления причины.
++- Перевести в DELETED только после завершения очистки. Историю и отметку удаления сохранить.
++- Добавить подтверждение удаления в кабинете, понятный результат и состояние ожидания физической очистки.
++
++Обязательная проверка границы: удержать общую файловую блокировку отдельным процессом, удалить ролик и подтвердить коммит DELETING. **Пока блокировка ещё удерживается**, проверить отказ новых запросов по ранее полученным ссылкам страницы, master и сегментов и отсутствие в каталоге. Затем освободить lock и проверить очистку. Уже скачанные/буферизованные байты отозвать нельзя.
++
++Дополнительно проверить чужое удаление, удаление ожидающего/ошибочного/готового ролика, остановку записи FFmpeg и отсутствие её возобновления, прерывание и повтор уборки, ошибку прав или тома без ложного DELETED.
++
++## T503 · Гонки, перезапуски и граница журнала
++
++- Удалить во время FFmpeg и между rename готового каталога и коммитом READY. Любая сериализация оставляет удалённое видео закрытым; поздний результат не восстанавливает READY.
++- Состязать удаление с ручным повтором и переименованием. После удаления не появляется доступный ролик или новый действующий запуск.
++- Повторно доставить старую команду после удаления: она не запускает FFmpeg и не публикует результат.
++- Остановить API после коммита удаления до ответа; повторить запрос. Остановить уборщик в середине очистки и перезапустить сервис. Проверить сохранность отметки в БД, закрытый доступ и завершение уборки по устойчивому обязательству.
++- **Граница S05:** записать устойчивую отметку удаления и доказать её сохранение после перезапуска. Этого недостаточно для защиты от восстановления старой БД.
++- **Обязательство S08:** журнал должен пережить восстановление старой БД и содержать удаления после даты backup. Согласовать независимое хранение/копирование, монотонную отметку, retention и сверку до открытия выдачи. При неполном журнале не открывать восстановленные ролики до ручной сверки. Проверку на старой резервной копии выполнить в **T802**.
++- **После T602:** удалить при ожидающем и уже начатом уведомлении. Ожидающее отменить; уже начатый внешний эффект гарантированно отменить нельзя. Записанная строка остаётся историей, её ссылка закрыта. Поздний ответ не меняет удалённое видео и не запускает обработку.
++
++## Приёмка и доказательства
++
++- Автоматические проверки прав, CSRF, валидации, сохранения идентичности, устойчивого повтора по исходному job_id, удаления и восстановления уборки. Гонки проверять на PostgreSQL, реальном файловом томе и worker S04; доставку — на RabbitMQ.
++- В браузере два автора проходят переименование, повтор после исправления причины и удаление. Проверить отмену формы, сообщение об ошибке и безопасное отображение HTML в названии.
++- Проверить миграции на пустой базе и копии предыдущего этапа, сборку frontend, smoke и затронутые сценарии S02–S04.
++- Записать команды, версии, ID заданий и поколений, состояния БД и результаты очистки в протокол S05. Обновить testing-report, матрицу требований и tasks по фактически выполненным проверкам. Зависимые от S04, T602 и T802 проверки сохраняют отдельный статус Not Run до выполнения.
++
++Готовность S05 означает проверенные переименование, ручной повтор и безопасное удаление на реальном S04. Проверка внешней доставки T503 завершается после T602, восстановление по журналу — в T802; их готовность не выводится из одного перезапуска сервиса.
+diff --git a/scripts/smoke_s05_rename.py b/scripts/smoke_s05_rename.py
+new file mode 100644
+index 0000000..5043a5e
+--- /dev/null
++++ b/scripts/smoke_s05_rename.py
+@@ -0,0 +1,81 @@
++"""Check S05 rename in a running disposable Compose project; leaves labelled fixtures."""
++
++import os
++import secrets
++import shutil
++import subprocess
++import uuid
++
++from playwright.sync_api import expect, sync_playwright
++
++from smoke_s02 import BASE_URL, COMPOSE, register_and_sign_in
++
++
++def main():
++    suffix = uuid.uuid4().hex[:12]
++    owner, other = f"s05_owner_{suffix}", f"s05_other_{suffix}"
++    password = secrets.token_urlsafe(24)
++    chrome = os.getenv("VIDHARBOR_CHROME") or shutil.which("chromium") or shutil.which("google-chrome")
++    with sync_playwright() as playwright:
++        browser = playwright.chromium.launch(executable_path=chrome, args=["--no-sandbox"])
++        owner_context = browser.new_context()
++        page = owner_context.new_page()
++        register_and_sign_in(page, owner, password)
++        # S04 publication is not available yet. Seed a QUEUED video to exercise real rename/list APIs.
++        code = (
++            "from django.contrib.auth import get_user_model; "
++            "from vidharbor.models import Upload, Video; "
++            f"owner = get_user_model().objects.get(username={owner!r}); "
++            "upload = Upload.objects.create(owner=owner, title='S05 fixture', expected_size=1, "
++            "state=Upload.State.COMPLETE); "
++            "video = Video.objects.create(owner=owner, upload=upload, title='S05 fixture'); "
++            "print(video.id)"
++        )
++        video_id = subprocess.check_output(
++            [*COMPOSE, "api", "python", "manage.py", "shell", "-c", code], text=True, timeout=30,
++        ).strip().splitlines()[-1]
++        uuid.UUID(video_id)
++        page.reload()
++        row = page.get_by_role("listitem").filter(has_text="S05 fixture")
++        row.get_by_role("button", name="Переименовать", exact=True).click()
++        page.get_by_label("Новое название", exact=True).fill("Не сохранять")
++        page.get_by_role("button", name="Отмена", exact=True).click()
++        expect(row.locator("strong")).to_have_text("S05 fixture")
++        row.get_by_role("button", name="Переименовать", exact=True).click()
++        title = '<img src=x onerror="window.s05Injected=true">'
++        page.get_by_label("Новое название", exact=True).fill(title)
++        route_pattern = "**/api/videos/*/rename"
++        page.route(route_pattern, lambda route: route.fulfill(
++            status=503, content_type="application/json", body='{"error":"Тестовый отказ"}',
++        ), times=1)
++        page.get_by_role("button", name="Сохранить", exact=True).click()
++        expect(page.get_by_role("alert")).to_have_text("Тестовый отказ")
++        expect(page.get_by_label("Новое название", exact=True)).to_have_value(title)
++        page.get_by_role("button", name="Сохранить", exact=True).click()
++        expect(page.get_by_role("status")).to_have_text("Название сохранено")
++        expect(page.locator(".videos strong")).to_have_text(title)
++        page.reload()
++        expect(page.locator(".videos strong")).to_have_text(title)
++        assert not page.evaluate("Boolean(window.s05Injected)")
++        expect(page.locator(".videos img")).to_have_count(0)
++
++        other_context = browser.new_context()
++        other_page = other_context.new_page()
++        register_and_sign_in(other_page, other, password)
++        expect(other_page.get_by_role("listitem")).to_have_count(0)
++        path = f"/api/videos/{video_id}/rename"
++        token = other_context.request.get(BASE_URL + "/api/auth/session").json()["csrf_token"]
++        denied = other_context.request.post(
++            BASE_URL + path, data={"title": "Чужое"}, headers={"X-CSRFToken": token},
++        )
++        assert denied.status == 404, denied.status
++        assert owner_context.request.post(BASE_URL + path, data={"title": "Без CSRF"}).status == 403
++        page.reload()
++        expect(page.locator(".videos strong")).to_have_text(title)
++        browser.close()
++    print("S05 rename: save, reload, cancel, error retry, HTML escaping, owner isolation and CSRF passed.")
++    print("QUEUED fixture only; catalogue, search, playback and deletion require S04.")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tasks.md b/tasks.md
+index 30664fd..7a99847 100644
+--- a/tasks.md
++++ b/tasks.md
+@@ -91,6 +91,10 @@
+ 
+ ## S05 · Управление своими видео
+ 
++[Подробный план S05](docs/implementation-plan-s05.md). Переименование и права владельца можно реализовать на базе S03; сквозные проверки повтора, удаления и выдачи требуют S04.
++
++**Частично:** переименование в API и кабинете, права владельца и CSRF реализованы и проверены. Каталог, поиск, прежняя ссылка и остальные действия S05 ждут S04. [Протокол переименования](docs/homework-05/protocols/s05-rename.md).
++
+ - [ ] **T501** Переименование и повтор обработки из оригинала. После T403.
+   - [ ] Дать владельцу переименовать видео. Проверить новое название в кабинете, каталоге и поиске, прежнюю ссылку и отказ при прямом запросе от другого автора.
+   - [ ] Дать владельцу повторить обработку после устранимого сбоя. Убрать причину и проверить успешный повтор из того же оригинала без новой передачи и смены ссылки, отказ для чужого запроса и понятную ошибку для повреждённого оригинала.
+diff --git a/web/src/main.ts b/web/src/main.ts
+index a9ec2b8..be3009a 100644
+--- a/web/src/main.ts
++++ b/web/src/main.ts
+@@ -17,6 +17,8 @@ createApp({
+     const status = ref("");
+     const progress = ref<number>();
+     const pending = ref<string>();
++    const editing = ref<string>();
++    const editedTitle = ref("");
+ 
+     async function loadVideos() {
+       videos.value = (await api<{ videos: Video[] }>("/api/videos")).videos;
+@@ -130,6 +132,30 @@ createApp({
+         status.value = "";
+         progress.value = undefined;
+         pending.value = undefined;
++        editing.value = undefined;
++        editedTitle.value = "";
++      });
++    }
++
++    function startRename(video: Video) {
++      editing.value = video.id;
++      editedTitle.value = video.title;
++      error.value = "";
++      status.value = "";
++    }
++
++    function submitRename(event: Event) {
++      event.preventDefault();
++      const csrf = session.value?.csrf_token;
++      const id = editing.value;
++      if (!csrf || !id || busy.value) return;
++      return run(async () => {
++        const updated = await api<Video>("/api/videos/" + id + "/rename", {
++          csrf, data: { title: editedTitle.value },
++        });
++        videos.value = videos.value.map((video) => video.id === id ? updated : video);
++        editing.value = undefined;
++        status.value = "Название сохранено";
+       });
+     }
+ 
+@@ -186,6 +212,25 @@ createApp({
+           ? h("ul", { class: "videos" }, videos.value.map((video) => h("li", { key: video.id }, [
+             h("strong", video.title),
+             h("span", video.state === "QUEUED" ? "Ожидает обработки" : video.state),
++            editing.value === video.id
++              ? h("form", { onSubmit: submitRename, "aria-label": "Переименование видео" }, [
++                h("label", ["Новое название", h("input", {
++                  name: "title", required: true, maxlength: 200, value: editedTitle.value,
++                  disabled: busy.value,
++                  onInput: (event: Event) => { editedTitle.value = (event.target as HTMLInputElement).value; },
++                })]),
++                h("div", { class: "actions" }, [
++                  h("button", { type: "submit", disabled: busy.value }, "Сохранить"),
++                  h("button", {
++                    type: "button", class: "secondary", disabled: busy.value,
++                    onClick: () => { editing.value = undefined; error.value = ""; },
++                  }, "Отмена"),
++                ]),
++              ])
++              : h("button", {
++                type: "button", class: "secondary", disabled: busy.value,
++                onClick: () => startRename(video),
++              }, "Переименовать"),
+           ])))
+           : h("p", "Здесь появятся загруженные видео."),
+       ]);
+diff --git a/web/src/style.css b/web/src/style.css
+index 36e9dcf..b233607 100644
+--- a/web/src/style.css
++++ b/web/src/style.css
+@@ -94,6 +94,10 @@ button:disabled {
+   padding: .6rem 0;
+ }
+ 
++.videos form {
++  width: 100%;
++}
++
+ [role="alert"] {
+   color: #9e2424;
+ }
+
+================================================================================
+ПОЛНОЕ ИТОГОВОЕ СОДЕРЖИМОЕ ФАЙЛОВ
+================================================================================
+
+================================================================================
+НАЧАЛО ФАЙЛА: api/vidharbor/test_videos.py
+================================================================================
+import uuid
+
+from django.contrib.auth import get_user_model
+from django.test import Client, TestCase
+
+from .models import Job, Outbox, Upload, Video
+
+
+class RenameVideoTests(TestCase):
+    def setUp(self):
+        self.owner = get_user_model().objects.create_user(username="owner")
+        self.other = get_user_model().objects.create_user(username="other")
+        self.upload = Upload.objects.create(
+            owner=self.owner, title="Оригинал", expected_size=123, size=123,
+            sha256="a" * 64, state=Upload.State.COMPLETE,
+        )
+        self.video = Video.objects.create(owner=self.owner, upload=self.upload, title="Прежнее")
+        self.job = Job.objects.create(video=self.video, generation=self.video.generation)
+        self.outbox = Outbox.objects.create(
+            job=self.job, kind="video.transcode.v1", attempt_no=1, payload={"title": "Прежнее"},
+        )
+        self.url = f"/api/videos/{self.video.id}/rename"
+        self.client = Client(enforce_csrf_checks=True)
+        self.login(self.owner)
+
+    def login(self, user):
+        self.client.force_login(user)
+        token = self.client.get("/api/auth/session").json()["csrf_token"]
+        self.headers = {"X-CSRFToken": token}
+
+    def rename(self, title, url=None):
+        return self.client.post(
+            url or self.url, {"title": title}, content_type="application/json", headers=self.headers,
+        )
+
+    def test_rename_preserves_identity_original_and_processing(self):
+        before_video = Video.objects.values().get(pk=self.video.pk)
+        before_upload = Upload.objects.values().get(pk=self.upload.pk)
+        before_job = Job.objects.values().get(pk=self.job.pk)
+        before_outbox = Outbox.objects.values().get(pk=self.outbox.pk)
+        for _ in range(2):
+            response = self.rename("  Новое название  ")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["id"], str(self.video.pk))
+            self.assertEqual(response.json()["title"], "Новое название")
+        self.assertEqual(
+            Video.objects.values().get(pk=self.video.pk), {**before_video, "title": "Новое название"},
+        )
+        self.assertEqual(Upload.objects.values().get(pk=self.upload.pk), before_upload)
+        self.assertEqual(Job.objects.values().get(pk=self.job.pk), before_job)
+        self.assertEqual(Outbox.objects.values().get(pk=self.outbox.pk), before_outbox)
+        self.assertEqual((Video.objects.count(), Job.objects.count(), Outbox.objects.count()), (1, 1, 1))
+        self.assertEqual(self.client.get("/api/videos").json()["videos"][0]["title"], "Новое название")
+
+    def test_other_author_cannot_rename_or_list_video(self):
+        self.login(self.other)
+        self.assertEqual(self.client.get("/api/videos").json(), {"videos": []})
+        self.assertEqual(self.rename("Чужое").status_code, 404)
+        self.video.refresh_from_db()
+        self.assertEqual(self.video.title, "Прежнее")
+
+    def test_requires_session_and_csrf(self):
+        response = self.client.post(self.url, {"title": "Без CSRF"}, content_type="application/json")
+        self.assertEqual(response.status_code, 403)
+        self.client.logout()
+        token = self.client.get("/api/auth/session").json()["csrf_token"]
+        self.headers = {"X-CSRFToken": token}
+        self.assertEqual(self.rename("Без входа").status_code, 401)
+        self.video.refresh_from_db()
+        self.assertEqual(self.video.title, "Прежнее")
+
+    def test_validation_and_missing_video(self):
+        for title in (None, 123, [], {}, "", "   ", "a" * 201, "bad\0title"):
+            with self.subTest(title=title):
+                self.assertEqual(self.rename(title).status_code, 400)
+        self.video.refresh_from_db()
+        self.assertEqual(self.video.title, "Прежнее")
+        self.assertEqual(self.rename("я" * 200).status_code, 200)
+        self.assertEqual(self.rename("Название", f"/api/videos/{uuid.uuid4()}/rename").status_code, 404)
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+
+    def test_invalid_request_body(self):
+        for body in ("{", "[]", "null"):
+            self.assertEqual(self.client.post(
+                self.url, body, content_type="application/json", headers=self.headers,
+            ).status_code, 400)
+        self.assertEqual(self.client.post(self.url, {"title": "form"}, headers=self.headers).status_code, 400)
+
+КОНЕЦ ФАЙЛА: api/vidharbor/test_videos.py
+
+================================================================================
+НАЧАЛО ФАЙЛА: api/vidharbor/urls.py
+================================================================================
+from django.urls import path
+
+from . import accounts, health, uploads, videos
+
+urlpatterns = [
+    path("health/live", health.live, name="live"),
+    path("health/ready", health.ready, name="ready"),
+    path("api/auth/session", accounts.session),
+    path("api/auth/register", accounts.register),
+    path("api/auth/login", accounts.sign_in),
+    path("api/auth/logout", accounts.sign_out),
+    path("api/videos", uploads.videos),
+    path("api/videos/<uuid:video_id>/rename", videos.rename),
+    path("api/uploads", uploads.create_upload),
+    path("api/uploads/<uuid:upload_id>", uploads.upload_info),
+    path("api/uploads/<uuid:upload_id>/content", uploads.receive_upload),
+    path("api/uploads/<uuid:upload_id>/complete", uploads.complete_upload),
+]
+
+КОНЕЦ ФАЙЛА: api/vidharbor/urls.py
+
+================================================================================
+НАЧАЛО ФАЙЛА: api/vidharbor/videos.py
+================================================================================
+from django.db import transaction
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404
+from django.views.decorators.cache import never_cache
+from django.views.decorators.http import require_POST
+
+from .accounts import error, json_object, require_author
+from .models import Video
+
+
+@require_POST
+@never_cache
+@require_author
+def rename(request, video_id):
+    with transaction.atomic():
+        video = get_object_or_404(
+            Video.objects.select_for_update(), id=video_id, owner=request.user,
+        )
+        title = json_object(request).get("title")
+        if not isinstance(title, str) or not 1 <= len(title.strip()) <= 200 or "\0" in title:
+            return error("Введите название длиной от 1 до 200 символов.", 400)
+        video.title = title.strip()
+        video.save(update_fields=["title"])
+    return JsonResponse({"id": video.id, "title": video.title, "state": video.state})
+
+КОНЕЦ ФАЙЛА: api/vidharbor/videos.py
+
+================================================================================
+НАЧАЛО ФАЙЛА: docs/homework-05/protocols/s05-rename.md
+================================================================================
+# S05 · Переименование и права владельца
+
+12 ноября 2026 года. Ветка `feature/s05-rename`, база `origin/main` / `f120ac2` (S03). Проверена самостоятельная часть T501; весь этап S05 не завершён. [План](../../implementation-plan-s05.md).
+
+## Изменение
+
+`POST /api/videos/{video_id}/rename`, JSON `{"title":"Новое название"}`. Требуются сессия владельца и CSRF. Успех — 200 с `id`, `title`, `state`; неверное название — 400, отсутствие сессии — 401, CSRF — 403, чужой или отсутствующий ID — 404. Разрешено 1–200 символов после обрезки пробелов, NUL запрещён. Меняется только Video.title под блокировкой строки, без миграций, новой обработки и изменения исходной Upload.
+
+Кабинет позволяет открыть форму, сохранить или отменить изменение. Ошибка сохраняет введённое значение для повтора. Название выводится текстом.
+
+## Проверки
+
+Отдельный Compose-проект `vidharbor-s05`, тестовые тома, порт 8086. PostgreSQL 16, RabbitMQ 4.2 и FFmpeg из закреплённых в проекте образов. API и upload собраны из текущего кода.
+
+Особенности облачной среды вынесены за checkout в `/workspace/vidharbor-cloud`: Dockerfile для сборки монтирует системный CA для pip/npm/apk и разрешает чтение скопированного кода UID 65532. Исходные Dockerfile не менялись. BusyBox wget из healthcheck использовал облачный proxy для локального запроса и получал 403; локальный override `s05-health.json` заменил эту проверку на Python urllib. API напрямую отвечал 200. Эти настройки не меняют логику приложения.
+
+Выполненные команды из корня репозитория:
+
+```sh
+VIDHARBOR_PORT=8086 COMPOSE_PARALLEL_LIMIT=2 docker compose -p vidharbor-s05 --env-file .env.example -f compose.yaml -f /workspace/vidharbor-cloud/compose.json build api upload web migrate
+VIDHARBOR_PORT=8086 docker compose -p vidharbor-s05 --env-file .env.example -f compose.yaml -f /workspace/vidharbor-cloud/s05-health.json up -d --wait --wait-timeout 120 db rabbitmq migrate api upload web
+docker compose -p vidharbor-s05 --env-file .env.example run --rm --no-deps upload python manage.py test vidharbor -v 2
+docker compose -p vidharbor-s05 --env-file .env.example run --rm --no-deps api python manage.py makemigrations --check --dry-run
+COMPOSE_PROJECT_NAME=vidharbor-s05 VIDHARBOR_PORT=8086 VIDHARBOR_CHROME=/usr/bin/chromium python3 scripts/smoke_s05_rename.py
+curl -fsS --max-time 5 http://127.0.0.1:8086/health/ready
+```
+
+| Проверка | Результат |
+|---|---|
+| TypeScript/Vite, `npm run build` из `web/` | PASS |
+| Django `test vidharbor` | PASS: 14 тестов, включая 5 новых RenameVideoTests |
+| Миграции на новой тестовой базе | PASS: тестовая БД создана, миграции применены, БД удалена после тестов |
+| `makemigrations --check --dry-run` | PASS: No changes detected |
+| Сохранение ID, поколения, Upload, Job и Outbox при повторе переименования | PASS: сравнение записей в тестах |
+| Два автора, чужой прямой запрос, сессия, CSRF | PASS: Django и браузерный сценарий |
+| Пустое/нестроковое/длинное название, NUL, неверное тело запроса, граница 200 символов | PASS: Django |
+| Сохранение и перезагрузка, отмена, ошибка 503 и повтор с сохранённым текстом | PASS: Chromium/Playwright, реальный API; 503 внедрён маршрутом браузера |
+| HTML в названии не создаёт DOM-элемент и не выполняется | PASS: Chromium |
+| `/health/ready` | 200, postgres=true, rabbitmq=true |
+| Каталог, поиск, прежняя ссылка и воспроизведение | Not Run: требуют S04 |
+| Ручной повтор, удаление и гонки FFmpeg | Not Run: запланированы после S04 |
+| Отмена внешнего уведомления / восстановление старой БД | Not Run: после T602 / в T802 |
+
+Браузерный сценарий создаёт два тестовых аккаунта и QUEUED-видео с префиксом S05 прямо в тестовой БД. Физического оригинала у этой браузерной фикстуры нет: проверяются переименование и кабинет, а не загрузка или публикация. Скрипт оставляет фикстуры для осмотра; запускать только на одноразовом тестовом проекте. Тесты сохранения оригинала проверяют неизменность его метаданных; фактическая целостность HLS и ссылки остаётся проверкой S04.
+
+КОНЕЦ ФАЙЛА: docs/homework-05/protocols/s05-rename.md
+
+================================================================================
+НАЧАЛО ФАЙЛА: docs/homework-05/requirements-traceability.md
+================================================================================
+# VidHarbor — матрица требований и доказательств
+
+**Статус** · План покрытия и факты S01, 2026-11-11. «На каркасе подтверждено» относится к проверкам минимального VidHarbor. «Частично» фиксирует проверенную часть более широкого требования. Значение «Не выполнено» относится к фактическому доказательству.
+
+[PRD](../product-spec.md) · [Архитектура](design.md) · [Решения](decision-log.md) · [Надёжность](reliability.md) · [План этапов](../implementation-plan.md) · [Задачи](../../tasks.md).
+
+Локальные первоисточники: `Mentor_Homework_005.md` ред. 2 и `DZ5_New_Video_Project_Practical_Spec_RU.md`. DEC-003 и PRD фиксируют актуальные решения пользователя. P01–P13 и F13/F14/F16–F18 нужно подтверждать отдельно по двум приложениям. F15 и M28 относятся к KazanCourts. M13 входит в Core по контексту, Q и F — внутренние критерии проверки.
+
+## Продукт и качество
+
+Источник: PRD 0.3.
+
+| ID | Требование | Решение / документ | Этап и задача | План проверки | Факт |
+|---|---|---|---|---|---|
+| FR-001 | Вход и кабинет | design §§5–6, PRD §6 | S02 / T201, S05 / T501 | AC-001 | Частично. Проверены регистрация, вход, кабинет двух авторов и защита загрузок. [S02](testing-report.md#s02) |
+| FR-002 | Загрузка и прогресс | design §§5–6, PRD §6 | S02 / T202 | AC-002 | Проверено на малых файлах. В Chrome виден промежуточный прогресс передачи. [S02](testing-report.md#s02) |
+| FR-003 | Оригинал и задание | design §§5–6, PRD §6 | S02 / T203 | AC-002, AC-006 | Частично. Оригинал совпал по SHA-256. Задание и outbox записаны по одному на видео. [S02](testing-report.md#s02) |
+| FR-004 | Лестница без upscale | design §§5–6, PRD §6 | S04 / T401, S04 / T404 | AC-003 | Не выполнено |
+| FR-005 | Каталог и поиск | design §§5–6, PRD §6 | S04 / T403 | AC-004 | Не выполнено |
+| FR-006 | Страница и плеер | design §§5–6, PRD §6 | S04 / T403, S04 / T404 | AC-003, AC-004 | Не выполнено |
+| FR-007 | Один master | design §§5–6, PRD §6 | S04 / T403 | AC-003 | Не выполнено |
+| FR-008 | Переименование и удаление | design §§5–6, PRD §6 | S05 / T501, S05 / T502 | AC-005 | Частично. Переименование в API и кабинете, права владельца и CSRF проверены. Каталог, поиск, ссылка и удаление ждут S04. [S05](protocols/s05-rename.md) |
+| FR-009 | Состояния в кабинете | design §§5–6, PRD §6 | S02 / T203, S03 / T302, S04 / T403 | AC-002, AC-006 | Частично. Кабинет показывает ожидание обработки после принятия файла. [S02](testing-report.md#s02) |
+| FR-010 | Ручной повтор оригинала | design §§5–6, PRD §6 | S05 / T501 | AC-006 | Не выполнено |
+| FR-011 | Webhook по готовности | design §§5–6, PRD §6 | S06 / T602 | AC-007 | Не выполнено |
+| FR-012 | Строка Sheets | design §§5–6, PRD §6 | S06 / T602 | AC-007 | Не выполнено |
+| NFR-001 | Гигабайты, 5 ГиБ и отсутствие лимита длительности | design §§6–8, reliability | S02 / T202, S08 / T804 | AC-002 | Частично. Проверены четыре контейнера и граница на лимите 8 МиБ. Большой прогон остаётся на S08. [S02](testing-report.md#s02) |
+| NFR-002 | Раздельные HTTP и worker | design §§6–8, reliability | S02 / T202, S03 / T301 | AC-002, AC-008 | Частично. Загрузка отделена от API, relay запущен отдельным сервисом. Worker проверен отдельным процессом на стенде. Штатная обработка видео относится к S04. [S02](testing-report.md#s02) · [S03](testing-report.md#s03) |
+| NFR-003 | Ограниченные попытки и DLQ | design §§6–8, reliability | S03 / T302, S03 / T303, S03 / T304 | AC-008 | Подтверждены три попытки, задержки и два пути доставки в DLQ на стенде. [S03](testing-report.md#s03) |
+| NFR-004 | Отдельная доставка уведомлений | design §§6–8, reliability | S06 / T602, S06 / T603 | AC-007 | Не выполнено |
+| NFR-005 | Compose, конфиг и checks | design §§6–8, reliability | S01 / T102, S01 / T104, S07 / T702 | AC-009 | Частично. На каркасе проверены запуск, настройки, секреты вне Git, `live` и `ready`. [S01](testing-report.md#s01) |
+| NFR-006 | Наблюдение | design §§6–8, reliability | S07 / T701, S07 / T702 | AC-009 | Не выполнено |
+| NFR-007 | Копия и восстановление | design §§6–8, reliability | S08 / T801, S08 / T802, S08 / T803 | AC-009 | Не выполнено |
+| AC-001 | Два аккаунта и запрет чужих действий | план §§6–7, PRD §8 | S02 / T201, S05 / T501 | F01 | Частично. Два автора видят свои видео, чужая загрузка недоступна по прямому запросу. [S02](testing-report.md#s02) |
+| AC-002 | Большой файл и целостность | план §§6–7, PRD §8 | S02 / T202, S02 / T203, S08 / T804 | F01, F02, F03 | Частично. На малом файле проверены прогресс, целостность и состояние. Большой прогон остаётся на S08. [S02](testing-report.md#s02) |
+| AC-003 | Воспроизведение доступных вариантов | план §§6–7, PRD §8 | S04 / T401, S04 / T404 | F04 | Не выполнено |
+| AC-004 | Публичный каталог и прямая ссылка | план §§6–7, PRD §8 | S04 / T403 | F04 | Не выполнено |
+| AC-005 | Переименование и отзыв ссылки | план §§6–7, PRD §8 | S05 / T501, S05 / T502 | F04 | Не выполнено |
+| AC-006 | Обрыв, ошибки, повтор из оригинала | план §§6–7, PRD §8 | S02 / T203, S03 / T302, S05 / T501 | F06, F08, F12 | Частично. Обрыв не создаёт задания. Повреждённый файл отклонён. Повтор обработки относится к S05. [S02](testing-report.md#s02) |
+| AC-007 | Реальная строка и отказ интеграции | план §§6–7, PRD §8 | S06 / T602, S06 / T603 | F05, F10 | Не выполнено |
+| AC-008 | Реальная DLQ, сбои, дубли | план §§6–7, PRD §8 | S03 / T301, S03 / T302, S03 / T303, S03 / T304 | F03, F06, F07, F08, F09, F11, F12 | Частично. Сбои, DLQ и дубли проверены с тестовым обработчиком. Сохранность HLS при повторе проверяется в S04. [S03](testing-report.md#s03) |
+| AC-009 | Compose, telemetry и чистый restore | план §§6–7, PRD §8 | S01 / T104, S07 / T701, S07 / T702, S08 / T802, S08 / T803 | F13, F14, F16, F17, F18 | Частично. На каркасе подтверждены запуск, настройки и проверки здоровья. Телеметрия и восстановление запланированы. [S01](testing-report.md#s01) |
+
+## Поручения ментора
+
+Источник: ДЗ 005 §3.
+
+| ID | Требование | Решение / документ | Этап и задача | План проверки | Факт |
+|---|---|---|---|---|---|
+| M01 | Загрузка в новом веб-приложении | design §§2–8, DEC-003 | S02 / T202 | F01 | Загрузка через Vue проверена в Chrome двумя авторами. [S02](testing-report.md#s02) |
+| M02 | Сохранение оригинала | design §§2–8, DEC-003 | S02 / T203 | F01, F04 | Неизменённый оригинал подтверждён SHA-256 для двух файлов. [S02](testing-report.md#s02) |
+| M03 | Отзывчивость | design §§2–8, DEC-003 | S02 / T202, S03 / T301 | F01, F02 | Частично. Кабинет отвечает во время медленной передачи на отдельном пуле. [S02](testing-report.md#s02) |
+| M04 | Несколько гигабайт | design §§2–8, DEC-003 | S08 / T804 | F02 | Не выполнено |
+| M05 | Варианты в фоне | design §§2–8, DEC-003 | S04 / T401, S04 / T402 | F03, F04 | Не выполнено |
+| M06 | Потолок 720p и нижние качества | design §§2–8, DEC-003 | S04 / T401 | F04, U02 | Не выполнено |
+| M07 | Очередь обработки | design §§2–8, DEC-003 | S03 / T301 | F03 | Outbox доставляет задания в quorum-очередь с исходным ID после восстановления RabbitMQ. [S03](testing-report.md#s03) |
+| M08 | Один плейлист | design §§2–8, DEC-003 | S04 / T403 | F04 | Не выполнено |
+| M09 | Воспроизведение | design §§2–8, DEC-003 | S04 / T404 | F04 | Не выполнено |
+| M10 | Уведомление по готовности | design §§2–8, DEC-003 | S06 / T602 | F05 | Не выполнено |
+| M11 | Настраиваемый webhook со ссылкой | design §§2–8, DEC-003 | S06 / T601, S06 / T602 | F05, F10 | Не выполнено |
+| M12 | RabbitMQ | design §§2–8, DEC-003 | S03 / T301 | F03 | Проверены реальная очередь RabbitMQ и сохранение сообщений при перезапуске. [S03](testing-report.md#s03) |
+| M13 | Реальная DLQ, Core по контексту | design §§2–8, DEC-003 | S03 / T303 | F06, F07 | Подтверждены отправка из outbox и dead-lettering RabbitMQ после восстановления DLQ. [S03](testing-report.md#s03) |
+| M14 | Level 5 Track A | Отдельный учебный объём, план §1 | X002 | A01–A12 | Не выполнено |
+| M15 | Level 5 Track B | Отдельный учебный объём, план §1 | X002 | B01–B06 | Не выполнено |
+| M16 | Level 5 Track C | Отдельный учебный объём, план §1 | X002 | C01–C12 | Не выполнено |
+| M17 | Полный Track D отложен | Отдельный учебный объём, план §1 | X002 | отдельный-учёт | Не выполнено |
+| M18 | Production Practice для двух приложений | design §§2–8, DEC-003 | S08 / T804, X001 | P01–P13 | Не выполнено |
+| M19 | Compose | design §§2–8, DEC-003 | S01 / T102, X001 | P01 | Частично. Compose запускает каркас VidHarbor с пустыми томами. [S01](testing-report.md#s01) |
+| M20 | Environment | design §§2–8, DEC-003 | S01 / T104, X001 | P02 | Частично. Для каркаса VidHarbor проверен `.env.example`. [S01](testing-report.md#s01) |
+| M21 | Секреты вне Git | design §§2–8, DEC-003 | S01 / T104, X001 | P03 | Частично. В каркасе VidHarbor локальные секреты исключены из Git. [S01](testing-report.md#s01) |
+| M22 | Health/readiness | design §§2–8, DEC-003 | S01 / T104, S07 / T702, X001 | P04, P05 | Частично. В каркасе VidHarbor проверены отдельные `live` и `ready` при отказе зависимостей. [S01](testing-report.md#s01) |
+| M23 | Структурированные логи | design §§2–8, DEC-003 | S07 / T701, X001 | P06 | Не выполнено |
+| M24 | Request/job ID | design §§2–8, DEC-003 | S07 / T701, X001 | P07 | Не выполнено |
+| M25 | Сквозной trace | design §§2–8, DEC-003 | S07 / T701, X001 | P08 | Не выполнено |
+| M26 | Базовые метрики | design §§2–8, DEC-003 | S07 / T702, X001 | P09 | Не выполнено |
+| M27 | Панель | design §§2–8, DEC-003 | S07 / T702, X001 | P10 | Не выполнено |
+| M28 | Ограничение изменений KazanCourts | Отдельный учебный объём, план §1 | X001 | F15 | Не выполнено |
+| M29 | Объяснение решений | Отдельный учебный объём, план §1 | X003 | Defense | Не выполнено |
+| M30 | Сверка с ТЗ | design §§2–8, DEC-003 | D001, S08 / T804 | RTM | Не выполнено |
+| M31 | Повтор непонятных тем | Отдельный учебный объём, план §1 | X002 | theory-notes | Не выполнено |
+| M32 | Связь с ментором по готовности | Отдельный учебный объём, план §1 | X003 | mentor-review | Не выполнено |
+| M33 | PostgreSQL backup и проверенный restore | design §§2–8, DEC-003 | S08 / T801, S08 / T802, X001 | P11, P12 | Не выполнено |
+| M34 | Запуск, обновление и восстановление | design §§2–8, DEC-003 | S08 / T803, X001 | P13 | Не выполнено |
+
+## Надёжность
+
+Источник: ДЗ 005 §4.3, практическое ТЗ §2.
+
+| ID | Требование | Решение / документ | Этап и задача | План проверки | Факт |
+|---|---|---|---|---|---|
+| Q01 | Конечные повторы с паузами | reliability | S03 / T302 | F06 | Три попытки с задержками 30 и 120 секунд. [S03](testing-report.md#s03) |
+| Q02 | Реальная DLQ | reliability | S03 / T303 | F06 | Окончательная ошибка и неразбираемое сообщение получены из DLQ. [S03](testing-report.md#s03) |
+| Q03 | Изоляция плохого задания | reliability | S03 / T303 | F07 | После отправки неисправного задания в DLQ исправное завершилось. [S03](testing-report.md#s03) |
+| Q04 | Восстановление worker | reliability | S01 / T103, S03 / T304 | F08 | Проверены восстановление после остановки worker, потери heartbeat и таймаута ack. [S03](testing-report.md#s03) |
+| Q05 | Безопасный дубль | reliability | S03 / T304, S04 / T402 | F09 | Частично. Дубль завершённой команды не создаёт новую попытку. Сохранность HLS проверяется в S04. [S03](testing-report.md#s03) |
+| Q06 | Готовность до webhook | reliability | S04 / T402, S06 / T602 | F05 | Не выполнено |
+| Q07 | Отдельный сбой webhook | reliability | S06 / T603 | F10 | Не выполнено |
+| Q08 | Разрыв между БД и брокером | reliability | S03 / T301, S03 / T304 | F11 | Проверены обрыв подтверждения публикации и обрыв связи worker с базой. [S03](testing-report.md#s03) |
+| Q09 | Разбор и контролируемый повтор | reliability | S03 / T303, S05 / T501 | F06, демо-оператора | Частично. Оператор с ограниченными правами прочитал DLQ и историю. Контролируемый повтор относится к S05. [S03](testing-report.md#s03) |
+| Q10 | Лимиты и частичные результаты | reliability | S02 / T202, S04 / T402, S08 / T804 | F02, F12 | Не выполнено |
+
+## Production Practice видеосервиса
+
+Источник: ДЗ 005 §5, практическое ТЗ §3.
+
+| ID | Требование | Решение / документ | Этап и задача | План проверки | Факт |
+|---|---|---|---|---|---|
+| P01 | Запуск целиком через Compose | design §§7–8 | S01 / T102, S08 / T803 | F13 | На каркасе подтверждено. Compose поднял все четыре компонента с пустыми томами. [T102](protocols/s01-runtime.md#t102) |
+| P02 | Environment | design §§7–8 | S01 / T104 | F13 | На каркасе подтверждено. Настройки запуска заданы в `.env.example`. [T104](protocols/s01-runtime.md#t104) |
+| P03 | Секреты вне Git | design §§7–8 | S01 / T104 | F13 | На каркасе подтверждено. Локальные файлы секретов исключены из Git, значения отсутствуют в файлах коммита. [T104](protocols/s01-runtime.md#t104) |
+| P04 | Liveness | design §§7–8 | S01 / T104 | F13 | На каркасе подтверждено. `live` вернул `200` при остановке базы или очереди. [T104](protocols/s01-runtime.md#t104) |
+| P05 | Readiness | design §§7–8 | S01 / T104, S07 / T702 | F13 | На каркасе подтверждено. `ready` вернул `503` при остановке каждой зависимости и `200` после восстановления. [T104](protocols/s01-runtime.md#t104) |
+| P06 | JSON-логи | design §§7–8 | S07 / T701 | F14 | Не выполнено |
+| P07 | Request/job correlation ID | design §§7–8 | S07 / T701 | F14 | Не выполнено |
+| P08 | Сквозной trace | design §§7–8 | S07 / T701 | F14 | Не выполнено |
+| P09 | Базовые метрики | design §§7–8 | S07 / T702 | F14 | Не выполнено |
+| P10 | Живая панель | design §§7–8 | S07 / T702 | F14 | Не выполнено |
+| P11 | PostgreSQL backup | design §§7–8 | S08 / T801 | F16 | Не выполнено |
+| P12 | Restore в чистой БД | design §§7–8 | S08 / T802 | F17 | Не выполнено |
+| P13 | Запуск, обновление, восстановление системы | design §§7–8 | S08 / T803 | F18 | Не выполнено |
+
+## Сценарии демонстрации
+
+Источник: ДЗ 005 §12, практическое ТЗ §4.
+
+| ID | Требование | Решение / документ | Этап и задача | План проверки | Факт |
+|---|---|---|---|---|---|
+| F01 | Загрузка и неизменённый оригинал | план §§6–7 | S02 / T202, S02 / T203 | AC-002 | Проверено. Два автора загрузили исходники, хэши сохранённых оригиналов совпали. [S02](testing-report.md#s02) |
+| F02 | Большой файл с замерами | план §§6–7 | S08 / T804 | AC-002 | Не выполнено |
+| F03 | Реальный RabbitMQ и worker | план §§6–7 | S03 / T301 | AC-008 | Команда прошла через реальный RabbitMQ и тестовый обработчик. [S03](testing-report.md#s03) |
+| F04 | Лестница и плеер | план §§6–7 | S04 / T404 | AC-003 | Не выполнено |
+| F05 | Webhook после готовности | план §§6–7 | S06 / T602 | AC-007 | Не выполнено |
+| F06 | Неисправная задача в DLQ | план §§6–7 | S03 / T303 | AC-008 | Подтверждена доставка неисправного задания в DLQ. [S03](testing-report.md#s03) |
+| F07 | Исправная после плохой | план §§6–7 | S03 / T303 | AC-008 | Исправное задание завершилось после неисправного. [S03](testing-report.md#s03) |
+| F08 | Crash/restart worker | план §§6–7 | S03 / T304 | AC-008 | При остановке worker проверены повторная выдача и восстановление. [S03](testing-report.md#s03) |
+| F09 | Повторная доставка | план §§6–7 | S03 / T304, S04 / T402 | AC-008 | Частично. Повтор команды проверен в S03. Выходные файлы HLS проверяются в S04. [S03](testing-report.md#s03) |
+| F10 | Webhook недоступен | план §§6–7 | S06 / T603 | AC-007 | Не выполнено |
+| F11 | Брокер недоступен | план §§6–7 | S03 / T301, S03 / T304 | AC-008 | При недоступном RabbitMQ команда сохранилась в outbox. После запуска доставлена с исходным ID. [S03](testing-report.md#s03) |
+| F12 | Частичный результат закрыт | план §§6–7 | S04 / T402 | AC-006, AC-008 | Не выполнено |
+| F13 | Compose, настройки и checks | план §§6–7 | S01 / T102, S01 / T104, S07 / T702, X001 | P01–P05 | Частично. Compose, настройки и проверки здоровья продемонстрированы на каркасе VidHarbor. Полная демонстрация обоих приложений впереди. [S01](testing-report.md#s01) |
+| F14 | Telemetry | план §§6–7 | S07 / T701, S07 / T702, X001 | P06–P10 | Не выполнено |
+| F15 | Регрессия только KazanCourts | Отдельный учебный объём, план §1 | X001 | вне-scope | Не выполнено |
+| F16 | Реальный dump | план §§6–7 | S08 / T801, X001 | P11 | Не выполнено |
+| F17 | Реальный restore | план §§6–7 | S08 / T802, X001 | P12 | Не выполнено |
+| F18 | Три эксплуатационные процедуры | план §§6–7 | S08 / T803, X001 | P13 | Не выполнено |
+
+## Исходные уточнения ментора
+
+Источник: ДЗ 005 §8.
+
+| ID | Требование | Решение / документ | Этап и задача | План проверки | Факт |
+|---|---|---|---|---|---|
+| U01 | Письменный список Production Practice получен | DEC-003/004, design §11 | D001 | P01–P13 | Источник получен, практика не выполнена |
+| U02 | Качества, вертикаль и малый источник | DEC-003/004, design §11 | S04 / T401 | OPEN-02 | Не выполнено |
+| U03 | Плейлист и плеер | DEC-003/004, design §11 | S04 / T403, S04 / T404 | OPEN-02 | Не выполнено |
+| U04 | Контракт webhook | DEC-003/004, design §11 | S06 / T601, S06 / T603 | OPEN-01 | Не выполнено |
+| U05 | Пределы и загрузка | DEC-003/004, design §11 | S01 / T101, S02 / T202, S08 / T804 | OPEN-03 | Частично. Измерены передача до 8 МиБ, память и временные файлы. Большой прогон остаётся на S08. [S02](testing-report.md#s02) |
+| U06 | Кандидат FFmpeg | DEC-003/004, design §11 | S04 / T401 | F04 | Не выполнено |
+| U07 | Неясные слова о прежних интеграциях | Отдельный учебный объём, план §1 | X002 | theory-notes | Не выполнено |
+| U08 | Граница внешнего deployment | DEC-003/004, design §11 | D001, S08 / T803 | P13 | Не выполнено |
+| U09 | Срок и встреча | Отдельный учебный объём, план §1 | X003 | mentor-review | Не выполнено |
+
+## Открытые вопросы Product Spec
+
+| ID | Решение и остаток | Задача / проверка | Факт |
+|---|---|---|---|
+| OPEN-01 | Адрес и пять попыток согласованы. Нужны доступ, защита и испытание Sheets. | S06 / T601–T603, AC-007 | Не выполнено |
+| OPEN-02 | HLS и hls.js приняты. Вертикальный M06/U02 и набор образцов открыты. | S04 / T401–T404, AC-003 | Не выполнено |
+| OPEN-03 | 5 ГиБ, контейнеры и новый старт после обрыва приняты. Нужны допуск среды и замеры. | S01 / T101, S02 / T202, S08 / T804, AC-002 | Не выполнено |
+| OPEN-04 | Политика удаления принята. Журнал удалений, место и срок копий уточняются. | S05 / T502–T503, S08 / T801–T802 | Не выполнено |
+
+## Теория и общий учебный цикл
+
+Источник — ДЗ 005 §6 и Markdown roadmap. Все строки относятся к X002 и будущему `theory-notes.md`. Проверка — объяснение своими словами и применимый учебный пример. Технические артефакты VidHarbor дают материал для защиты, а статусы понимания фиксируются отдельно.
+
+| ID | Тема | Задача и доказательство | Факт |
+|---|---|---|---|
+| A01 | Docker image / container | X002, объяснение и пример | Не выполнено |
+| A02 | Volumes | X002, объяснение и пример | Не выполнено |
+| A03 | Networking | X002, объяснение и пример | Не выполнено |
+| A04 | Docker Compose | X002, объяснение и пример | Не выполнено |
+| A05 | VPS vs PaaS vs Cloud | X002, объяснение и пример | Не выполнено |
+| A06 | Reverse proxy | X002, объяснение и пример | Не выполнено |
+| A07 | DNS | X002, объяснение и пример | Не выполнено |
+| A08 | TLS / HTTPS | X002, объяснение и пример | Не выполнено |
+| A09 | Environments | X002, объяснение и пример | Не выполнено |
+| A10 | Secrets | X002, объяснение и пример | Не выполнено |
+| A11 | Database migrations during deployment | X002, объяснение и пример | Не выполнено |
+| A12 | Rollback | X002, объяснение и пример | Не выполнено |
+| B01 | Build | X002, объяснение и пример | Не выполнено |
+| B02 | Lint / static checks | X002, объяснение и пример | Не выполнено |
+| B03 | Tests | X002, объяснение и пример | Не выполнено |
+| B04 | Artifacts | X002, объяснение и пример | Не выполнено |
+| B05 | Deployment | X002, объяснение и пример | Не выполнено |
+| B06 | Rollback strategy | X002, объяснение и пример | Не выполнено |
+| C01 | Structured logs | X002, объяснение и пример | Не выполнено |
+| C02 | Metrics | X002, объяснение и пример | Не выполнено |
+| C03 | Traces | X002, объяснение и пример | Не выполнено |
+| C04 | Correlation IDs | X002, объяснение и пример | Не выполнено |
+| C05 | Dashboards | X002, объяснение и пример | Не выполнено |
+| C06 | Alerts | X002, объяснение и пример | Не выполнено |
+| C07 | Health / readiness | X002, объяснение и пример | Не выполнено |
+| C08 | Backups | X002, объяснение и пример | Не выполнено |
+| C09 | Restore | X002, объяснение и пример | Не выполнено |
+| C10 | Graceful shutdown | X002, объяснение и пример | Не выполнено |
+| C11 | RPO / RTO — базово | X002, объяснение и пример | Не выполнено |
+| C12 | SLI / SLO — базово | X002, объяснение и пример | Не выполнено |
+
+CP4 и CP5 сверяются отдельно по фактическим доказательствам. Review 01, Defense 005 и Learning Pack относятся к общему учебному циклу. Актуальный Review 01 не приложен. Расхождение порога Defense между общим регламентом и ДЗ 005 §14.3 требуется сверить до X003.
+
+КОНЕЦ ФАЙЛА: docs/homework-05/requirements-traceability.md
+
+================================================================================
+НАЧАЛО ФАЙЛА: docs/homework-05/testing-report.md
+================================================================================
+# Отчёт о проверках VidHarbor
+
+## S01
+
+Проверки каркаса выполнены 10–11 ноября 2026 года. Результаты относятся к минимальному VidHarbor и отдельному стенду T103.
+
+| Проверка | Результат |
+|---|---|
+| T101, T102, T104 | Linux-контейнер запустился. Compose поднял каркас с пустыми томами, Chrome отрисовал страницу. При остановке PostgreSQL и RabbitMQ `live` оставался `200`, `ready` возвращал `503` и восстанавливался до `200`. Проверены шаблон настроек и исключение секретов из Git. [Протокол запуска](protocols/s01-runtime.md). |
+| T103 | На отдельном стенде прошли повторная выдача при падении обработчика, блокировка общей папки при живом FFmpeg, потеря heartbeat и таймаут подтверждения. [Протокол RabbitMQ](protocols/s01-rabbitmq.md). |
+| GitHub Actions | Прогон для `955c854` в PR №2 прошёл. GitHub собрал ветку вместе с `main`, поднял Compose с чистыми томами, отрисовал страницу в Chrome и проверил отключение и восстановление обеих зависимостей. [Прогон CI](https://github.com/ruiskhakov2017-sys/vidharbor/actions/runs/43032163988). |
+
+По S01 подтверждены P01–P05 в пределах каркаса. Полная демонстрация F13, проверки телеметрии и восстановления, а также полный набор CI T703 относятся к следующим этапам.
+
+## S02
+
+Проверки выполнены локально 11 ноября 2026 года на ветке от main a74781a. Чистый Compose запустился за 93,2 с. Миграции также прошли на копии тома S01.
+
+| Проверка | Результат |
+|---|---|
+| T201 | В Chrome 157 два автора зарегистрировались и вошли в отдельные кабинеты. Списки изолированы, чужой запрос и запросы без CSRF отклонены. |
+| T202 | В Chrome виден промежуточный прогресс. Обрыв требует новой передачи. Тестовый предел 8 МиБ принят, лишний байт отклонён. Кабинет отвечает во время передачи, второй полной копии не было. |
+| T203 | SHA-256 обоих оригиналов совпал. У каждого видео одно задание и одна запись outbox. Потеря ответа, параллельный запрос и сбой до коммита не дали дублей. |
+| T204 | MP4, MOV, MKV и WebM приняты. Усечённый файл и файл без видеопотока отклонены. Старая часть удалена, свежая и активная сохранены. |
+| Регрессия S01 | Экран входа отрисован. При отключении каждой зависимости live остался 200, ready вернул 503 и снова 200 после её запуска. |
+
+Лимит по умолчанию — 5 ГиБ. Прогон 3–5 ГБ для полной приёмки AC-002 остаётся на S08. [Протокол S02 с командами и замерами](protocols/s02-auth-upload.md).
+
+## S03
+
+На копии базы S02 задание доставлено в RabbitMQ после его остановки и запуска с прежним `message_id`. Проверены постоянная очередь, отсутствие маршрута и разрыв перед подтверждением публикации. Повтор при потере подтверждения может создать копию сообщения с тем же ID. [Протокол T301](protocols/s03-t301.md).
+
+Проверены три попытки с паузами 30 и 120 секунд, оба пути доставки в очередь ошибок, повторная выдача при сбое worker, heartbeat и таймауте ack. При обрыве PostgreSQL подтверждение не отправлено, после восстановления задание продолжилось. Блокировка общего тома исключила одновременную запись двух процессов FFmpeg. В обычном Compose relay доставляет задания, а обработчик с тестовым результатом запускается отдельно на тестовом стенде. [Протокол T302–T304](protocols/s03-t302-t304.md).
+
+Регрессия локального Compose прошла. Chrome проверил путь двух авторов до принятого видео. После запуска relay в очереди было два задания и ноль потребителей. При остановке каждой зависимости live оставался 200, ready менялся с 200 на 503 и обратно. Все 8 тестов Django прошли. [Протокол регрессии](protocols/s03-t302-t304.md#регрессия-s01-и-s02).
+
+Регрессия T304 подтвердила, что после длительного сбоя PostgreSQL тот же worker возобновляет получение заданий. Три разрыва канала и таймаут ожидания блокировки не создали попыток. Попытку начала только действующая доставка. [Протокол](protocols/t304-recovery-regression.md).
+
+## S05 · Переименование, частичная реализация
+
+В ветке `feature/s05-rename` на базе S03 проверены переименование в кабинете и API, два автора, отказ чужого запроса, CSRF, валидация и сохранение ID, поколения, метаданных оригинала, задания и outbox. Все 14 тестов Django прошли (5 новых); сборка TypeScript/Vite и браузерный сценарий Chromium прошли. Проверки каталога, поиска и HLS ждут S04; повтор обработки и удаление ещё не реализованы. [Команды и границы проверки](protocols/s05-rename.md).
+
+КОНЕЦ ФАЙЛА: docs/homework-05/testing-report.md
+
+================================================================================
+НАЧАЛО ФАЙЛА: docs/implementation-plan-s05.md
+================================================================================
+# S05 · Управление своими видео
+
+**Статус · План для согласования.** S03 уже в `main` (merge `f120ac2`). Для сквозных проверок S05 нужен результат S04. Сейчас можно выполнить переименование в кабинете и проверки прав владельца; повтор обработки, удаление при живом FFmpeg и отзыв HLS подключаются к фактическому коду S04.
+
+Основание: [T501–T503](../tasks.md#s05--управление-своими-видео), [FR-008, FR-010 и AC-005–006](product-spec.md), [контракты надёжности](homework-05/reliability.md).
+
+## Порядок и границы
+
+1. Переименование через API и кабинет, права владельца, CSRF, валидация и сохранение идентичности видео. Эта часть доступна на базе S03.
+2. После S04 — интеграция нового названия с каталогом, поиском и страницей; ручной повтор из оригинала с новым поколением.
+3. После S04 — логическое удаление, отзыв выдачи, остановка FFmpeg и повторяемая очистка под общей блокировкой S04.
+4. Проверки гонок, перезапуска и устойчивой отметки удаления.
+5. После T602 — внешний сценарий отмены уведомления. В T802 — проверка журнала удалений при восстановлении старой резервной копии.
+
+Проверки с остановкой процессов и удалением проводить в отдельном проекте Compose с тестовыми томами. Не закрывать весь T501 только по результату переименования и весь T503 до зависимых сценариев.
+
+## T501 · Переименование
+
+- Добавить команду переименования с проверкой сессии, CSRF и владельца. Для чужого и отсутствующего ID возвращать одинаковый отказ. Принимать непустое строковое название до 200 символов после обрезки пробелов, отклонять NUL.
+- Менять только название Video. Сохранить ID, ссылку, поколение, оригинал, задания и outbox. Название первоначальной загрузки и снимки уже созданных событий не переписывать.
+- Добавить редактирование, сохранение, отмену, состояние ожидания и ошибку в кабинете. Сохранять введённый текст при ошибке. Выводить название текстом, без исполнения HTML.
+- Проверить два аккаунта, прямой чужой запрос, отсутствие сессии и CSRF, границы длины, неверный JSON и повтор одинакового запроса.
+- После S04 проверить новое название в каталоге, поиске и странице просмотра, прежнюю ссылку и воспроизведение. Под общей блокировкой строки Video отклонять переименование после DELETING; согласовать порядок с удалением.
+
+## T501 · Ручной повтор из оригинала
+
+- Разрешать повтор владельцу после окончательного устранимого сбоя. Отказ для повреждённого или неподдерживаемого оригинала объясняет необходимость загрузить исправный файл. Не принимать повтор для активного, готового или удаляемого видео.
+- **Привязать запрос к конкретному неудачному job_id**, а не только к video_id и текущему состоянию. Сохранить устойчивую связь исходного неудачного задания с созданным заданием следующего поколения; защитить связь уникальным ограничением БД.
+- После проверки владельца сначала искать уже принятый повтор для этого исходного job_id. Если он существует, вернуть именно созданное задание и его текущее состояние, даже если оно уже завершилось новой ошибкой. Старый запрос не создаёт следующее поколение. Для повтора новой ошибки автор явно адресует новый failed job_id.
+- Проверить оригинал под файловой защитой S04, без долгой транзакции на время чтения/хэширования. В короткой транзакции повторно проверить состояние и поколение, создать новое поколение, job, связь повтора и outbox атомарно. Сохранить ID видео, URL, байты оригинала и историю прежних попыток.
+- Два параллельных запроса одного исходного job_id возвращают одно задание. Повтор публикации сообщения сохраняет message_id. Недоступность RabbitMQ не теряет принятое обязательство из outbox.
+- Обработку выполнить механизмом S03–S04. Старое поколение не получает право писать или публиковать. Бюджет попыток нового задания ведётся отдельно.
+- В кабинете показать допустимость повтора и переходы состояний. Сбой доставки уведомления не разрешает повторную конвертацию.
+
+Обязательные проверки:
+
+1. Вызвать устранимый сбой, исправить причину, повторить и получить READY без передачи файла. Сверить ID видео, URL и SHA-256 оригинала.
+2. Дважды и параллельно отправить запрос с одним failed job_id: одно новое поколение, один job и одно обязательство outbox.
+3. Потерять ответ первого запроса. Дождаться, пока созданное им задание тоже завершится FAILED. Повторить **старый** запрос: возвращён тот же job, новых поколения и outbox нет. Явный запрос с новым failed job_id может создать следующее поколение.
+4. Проверить чужой запрос, удаление одновременно с повтором, старое сообщение, недоступный брокер и повреждённый оригинал.
+
+## T502 · Отзыв доступа до ожидания FFmpeg
+
+**Транзакция удаления не ждёт FFmpeg и не ждёт файловую блокировку S04.** Под короткой блокировкой строки Video проверить владельца, записать устойчивую отметку удаления, установить DELETING, отозвать поколение и сохранить обязательство очистки. Отменить ожидающие уведомления, когда их модель появится в S06. Повтор удаления безопасен.
+
+Только **после коммита** остановить группу процессов FFmpeg и дождаться общей блокировки S04 для уборки. Новый запрос к странице, каталогу, master, вариантам и сегментам уже должен отклоняться, даже если процесс ещё завершает работу или блокировка занята. Проверка разрешения не должна ждать блокировку уборки. При недоступной БД выдача закрывается.
+
+Остановка и уборка:
+
+- Отправить сигнал группе FFmpeg, после ограниченного ожидания — принудительное завершение. Доказать отсутствие писателя; при неопределённости не запускать конкурентную уборку и сохранить диагностируемый DELETING.
+- Под общей стабильной блокировкой S04 повторно проверить удаление и убрать оригинал, временные файлы, processing и ready. Не удалять активный lock-файл и не менять порядок блокировок вопреки S04.
+- Отсутствующие файлы считать нормальным результатом повторной уборки. При ошибке оставить доступ закрытым, обязательство сохранённым и выполнить повтор после исправления причины.
+- Перевести в DELETED только после завершения очистки. Историю и отметку удаления сохранить.
+- Добавить подтверждение удаления в кабинете, понятный результат и состояние ожидания физической очистки.
+
+Обязательная проверка границы: удержать общую файловую блокировку отдельным процессом, удалить ролик и подтвердить коммит DELETING. **Пока блокировка ещё удерживается**, проверить отказ новых запросов по ранее полученным ссылкам страницы, master и сегментов и отсутствие в каталоге. Затем освободить lock и проверить очистку. Уже скачанные/буферизованные байты отозвать нельзя.
+
+Дополнительно проверить чужое удаление, удаление ожидающего/ошибочного/готового ролика, остановку записи FFmpeg и отсутствие её возобновления, прерывание и повтор уборки, ошибку прав или тома без ложного DELETED.
+
+## T503 · Гонки, перезапуски и граница журнала
+
+- Удалить во время FFmpeg и между rename готового каталога и коммитом READY. Любая сериализация оставляет удалённое видео закрытым; поздний результат не восстанавливает READY.
+- Состязать удаление с ручным повтором и переименованием. После удаления не появляется доступный ролик или новый действующий запуск.
+- Повторно доставить старую команду после удаления: она не запускает FFmpeg и не публикует результат.
+- Остановить API после коммита удаления до ответа; повторить запрос. Остановить уборщик в середине очистки и перезапустить сервис. Проверить сохранность отметки в БД, закрытый доступ и завершение уборки по устойчивому обязательству.
+- **Граница S05:** записать устойчивую отметку удаления и доказать её сохранение после перезапуска. Этого недостаточно для защиты от восстановления старой БД.
+- **Обязательство S08:** журнал должен пережить восстановление старой БД и содержать удаления после даты backup. Согласовать независимое хранение/копирование, монотонную отметку, retention и сверку до открытия выдачи. При неполном журнале не открывать восстановленные ролики до ручной сверки. Проверку на старой резервной копии выполнить в **T802**.
+- **После T602:** удалить при ожидающем и уже начатом уведомлении. Ожидающее отменить; уже начатый внешний эффект гарантированно отменить нельзя. Записанная строка остаётся историей, её ссылка закрыта. Поздний ответ не меняет удалённое видео и не запускает обработку.
+
+## Приёмка и доказательства
+
+- Автоматические проверки прав, CSRF, валидации, сохранения идентичности, устойчивого повтора по исходному job_id, удаления и восстановления уборки. Гонки проверять на PostgreSQL, реальном файловом томе и worker S04; доставку — на RabbitMQ.
+- В браузере два автора проходят переименование, повтор после исправления причины и удаление. Проверить отмену формы, сообщение об ошибке и безопасное отображение HTML в названии.
+- Проверить миграции на пустой базе и копии предыдущего этапа, сборку frontend, smoke и затронутые сценарии S02–S04.
+- Записать команды, версии, ID заданий и поколений, состояния БД и результаты очистки в протокол S05. Обновить testing-report, матрицу требований и tasks по фактически выполненным проверкам. Зависимые от S04, T602 и T802 проверки сохраняют отдельный статус Not Run до выполнения.
+
+Готовность S05 означает проверенные переименование, ручной повтор и безопасное удаление на реальном S04. Проверка внешней доставки T503 завершается после T602, восстановление по журналу — в T802; их готовность не выводится из одного перезапуска сервиса.
+
+КОНЕЦ ФАЙЛА: docs/implementation-plan-s05.md
+
+================================================================================
+НАЧАЛО ФАЙЛА: scripts/smoke_s05_rename.py
+================================================================================
+"""Check S05 rename in a running disposable Compose project; leaves labelled fixtures."""
+
+import os
+import secrets
+import shutil
+import subprocess
+import uuid
+
+from playwright.sync_api import expect, sync_playwright
+
+from smoke_s02 import BASE_URL, COMPOSE, register_and_sign_in
+
+
+def main():
+    suffix = uuid.uuid4().hex[:12]
+    owner, other = f"s05_owner_{suffix}", f"s05_other_{suffix}"
+    password = secrets.token_urlsafe(24)
+    chrome = os.getenv("VIDHARBOR_CHROME") or shutil.which("chromium") or shutil.which("google-chrome")
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(executable_path=chrome, args=["--no-sandbox"])
+        owner_context = browser.new_context()
+        page = owner_context.new_page()
+        register_and_sign_in(page, owner, password)
+        # S04 publication is not available yet. Seed a QUEUED video to exercise real rename/list APIs.
+        code = (
+            "from django.contrib.auth import get_user_model; "
+            "from vidharbor.models import Upload, Video; "
+            f"owner = get_user_model().objects.get(username={owner!r}); "
+            "upload = Upload.objects.create(owner=owner, title='S05 fixture', expected_size=1, "
+            "state=Upload.State.COMPLETE); "
+            "video = Video.objects.create(owner=owner, upload=upload, title='S05 fixture'); "
+            "print(video.id)"
+        )
+        video_id = subprocess.check_output(
+            [*COMPOSE, "api", "python", "manage.py", "shell", "-c", code], text=True, timeout=30,
+        ).strip().splitlines()[-1]
+        uuid.UUID(video_id)
+        page.reload()
+        row = page.get_by_role("listitem").filter(has_text="S05 fixture")
+        row.get_by_role("button", name="Переименовать", exact=True).click()
+        page.get_by_label("Новое название", exact=True).fill("Не сохранять")
+        page.get_by_role("button", name="Отмена", exact=True).click()
+        expect(row.locator("strong")).to_have_text("S05 fixture")
+        row.get_by_role("button", name="Переименовать", exact=True).click()
+        title = '<img src=x onerror="window.s05Injected=true">'
+        page.get_by_label("Новое название", exact=True).fill(title)
+        route_pattern = "**/api/videos/*/rename"
+        page.route(route_pattern, lambda route: route.fulfill(
+            status=503, content_type="application/json", body='{"error":"Тестовый отказ"}',
+        ), times=1)
+        page.get_by_role("button", name="Сохранить", exact=True).click()
+        expect(page.get_by_role("alert")).to_have_text("Тестовый отказ")
+        expect(page.get_by_label("Новое название", exact=True)).to_have_value(title)
+        page.get_by_role("button", name="Сохранить", exact=True).click()
+        expect(page.get_by_role("status")).to_have_text("Название сохранено")
+        expect(page.locator(".videos strong")).to_have_text(title)
+        page.reload()
+        expect(page.locator(".videos strong")).to_have_text(title)
+        assert not page.evaluate("Boolean(window.s05Injected)")
+        expect(page.locator(".videos img")).to_have_count(0)
+
+        other_context = browser.new_context()
+        other_page = other_context.new_page()
+        register_and_sign_in(other_page, other, password)
+        expect(other_page.get_by_role("listitem")).to_have_count(0)
+        path = f"/api/videos/{video_id}/rename"
+        token = other_context.request.get(BASE_URL + "/api/auth/session").json()["csrf_token"]
+        denied = other_context.request.post(
+            BASE_URL + path, data={"title": "Чужое"}, headers={"X-CSRFToken": token},
+        )
+        assert denied.status == 404, denied.status
+        assert owner_context.request.post(BASE_URL + path, data={"title": "Без CSRF"}).status == 403
+        page.reload()
+        expect(page.locator(".videos strong")).to_have_text(title)
+        browser.close()
+    print("S05 rename: save, reload, cancel, error retry, HTML escaping, owner isolation and CSRF passed.")
+    print("QUEUED fixture only; catalogue, search, playback and deletion require S04.")
+
+
+if __name__ == "__main__":
+    main()
+
+КОНЕЦ ФАЙЛА: scripts/smoke_s05_rename.py
+
+================================================================================
+НАЧАЛО ФАЙЛА: tasks.md
+================================================================================
+# VidHarbor — задачи
+
+**S01, S02 и S03 выполнены.** [План разработки](docs/implementation-plan.md) · [Матрица требований](docs/homework-05/requirements-traceability.md).
+
+## S00 · Документы и публикация
+
+- [x] **D001** Сверить требования и согласованные решения. Результат — PRD 0.3 и DEC-001–004. Вход — пакет источников.
+- [x] **D002** Собрать документы для проверки плана: архитектуру arc42, черновик плана, задачи, матрицу требований и проекты протоколов. После D001.
+- **D003** Сделать первый коммит и отправить документы в приватный репозиторий. После публикации сверить репозиторий, ветку, SHA, доступность файлов и чистое рабочее дерево. Результат — в отчёте передачи. После D002.
+
+## S01 · Локальная основа — выполнен
+
+- [x] **T101** Docker запустил Linux-контейнер. Память, CPU и место на диске проверены для небольшого стенда. После разрешения S01. [Протокол T101](docs/homework-05/protocols/s01-runtime.md#t101).
+- [x] **T102** Vue, Django REST Framework, PostgreSQL и RabbitMQ запущены через Docker Compose с закреплёнными версиями. После T101. [Протокол T102](docs/homework-05/protocols/s01-runtime.md#t102).
+- [x] **T103** До сборки приложения на отдельном стенде проверены повторная выдача при падении, heartbeat, таймаут подтверждения и блокировка папки при живом FFmpeg. После T101 и отдельного разрешения. [Протокол T103](docs/homework-05/protocols/s01-rabbitmq.md).
+- [x] **T104** Проверены чистый запуск, страница в Chrome и шаблон без секретов. При остановке базы или очереди `live` отвечал `200`, `ready` — `503` и снова `200` после восстановления. После T102. [Протокол T104](docs/homework-05/protocols/s01-runtime.md#t104) · [Отчёт S01 и CI](docs/homework-05/testing-report.md#s01).
+
+## S02 · Вход и загрузка видео
+
+**Выполнено локально.** [План и сценарии S02](docs/implementation-plan-s02.md) · [Протокол S02](docs/homework-05/protocols/s02-auth-upload.md).
+
+- [x] **T201** Регистрация, вход и кабинет автора. После T104.
+  - [x] Подключить учётные записи и сессии Django в PostgreSQL. Проверить миграции на пустой базе и копии тома S01.
+  - [x] Сделать API регистрации. Проверить создание аккаунта и отказ при повторном имени.
+  - [x] Сделать API входа, выхода и проверки сессии. Проверить вход с верным паролем, отказ с неверным и закрытие доступа после выхода.
+  - [x] Подключить формы Vue к API через Nginx по одному адресу. В Chrome зарегистрироваться, войти и выйти.
+  - [x] Открывать кабинет только с действующей сессией, возвращать из API список собственных видео. Проверить, что после выхода кабинет и его API требуют входа.
+  - [x] Проверить права двух авторов. Сверить списки видео и отказ прямого запроса к чужому видео или загрузке.
+  - [x] Проверить защиту CSRF. Убедиться, что без токена отклоняются регистрация, вход и изменяющие запросы после входа.
+- [x] **T202** Потоковая загрузка с прогрессом и пределом 5 ГиБ. После T201.
+  - [x] Создавать загрузку с названием и ожидаемым размером. Проверить приём допустимых данных и отказ при заявленном размере выше лимита или нехватке места.
+  - [x] Принимать файл через отдельный пул Django/Gunicorn с отключённой буферизацией Nginx, писать порциями в закрытый `.part`. На тестовом лимите проверить размер ниже, ровно на пределе и на байт выше, а также несовпадение заявленной и фактической длины.
+  - [x] Показать прогресс передачи и статус проверки файла. Убедиться, что оба видны в браузере.
+  - [x] Обработать обрыв передачи. Проверить сообщение об ошибке и новую попытку с нуля.
+  - [x] Медленно передать небольшой файл у тестового лимита. Проверить, что кабинет отвечает, память контейнеров не растёт пропорционально файлу, а на томе и во временных каталогах Django и Nginx нет второй полной копии.
+- [x] **T204** Проверка формата и очистка незавершённых загрузок. После T202.
+  - [x] Проверять контейнер и потоки через `ffprobe` с таймаутом. Проверить поддерживаемые и повреждённые образцы по [плану S02](docs/implementation-plan-s02.md#t204--проверка-формата-и-очистка).
+  - [x] Подключить проверку формата к финализации файла T203 до сохранения оригинала. Проверить отказ для повреждённого файла и файла без видеопотока.
+  - [x] Удалять части после 24 часов без активности под той же блокировкой, что использует запись. На тестовых датах проверить удаление старой части, сохранение свежей, активной и готового оригинала. Повторить очистку.
+- [x] **T203** Проверка целостности и сохранение оригинала и задания. После T202 и подключения проверки формата из T204.
+  - [x] Считать длину и SHA-256 при записи и сохранить их до финализации. Проверить сохранённые значения на тестовом файле.
+  - [x] Сверить длину и хэш, затем сохранить проверенный оригинал под блокировкой на том же томе. Сверить SHA-256 с исходником и проверить отказ при обрыве или повреждении.
+  - [x] Одной транзакцией завершать загрузку, создавать задание и запись outbox. При остановленном RabbitMQ проверить по PostgreSQL, что валидная загрузка создала одно задание и одну запись outbox, а незавершённая не создала ни одной.
+  - [x] Проверить повтор завершения после потери ответа, параллельные запросы и сбой между переименованием и коммитом. Сверить единственный оригинал, задание, outbox и прежние ID по [плану S02](docs/implementation-plan-s02.md#t203--сохранение-оригинала-и-задания).
+  - [x] Прогнать путь от входа до принятого видео в Chrome. Проверить два аккаунта и сохранённый оригинал.
+  - [x] Повторить чистый запуск Compose и проверки `live` и `ready` при остановке зависимостей. Проверить обновлённый smoke-скрипт.
+  - [x] Сохранить замеры в протоколе, краткий результат — в отчёте и матрице. Сверить ссылки и результаты.
+
+## S03 · Очередь и восстановление после сбоев
+
+После S02. Проверки T103 выполнены в самом VidHarbor на тестовых томах. [План S03](docs/implementation-plan-s03.md) · [Сценарии отказов](docs/homework-05/reliability.md).
+
+- [x] **T301** Доставка заданий из outbox в RabbitMQ. После T103 и T203. [Протокол T301](docs/homework-05/protocols/s03-t301.md).
+  - [x] Настроить рабочий маршрут, очередь задач и очередь ошибок с постоянным хранением. Отправить тестовое сообщение и получить его из реальной рабочей очереди.
+  - [x] Отправлять сообщения из outbox со стабильным ID, publisher confirms и `mandatory`. Убрать маршрут и проверить, что возврат сообщения не помечает запись отправленной.
+  - [x] Разорвать связь до получения подтверждения публикации. Проверить повтор с тем же ID.
+  - [x] Остановить брокер, создать задание, затем запустить брокер. Проверить, что запись сохранилась в PostgreSQL, сообщение дошло с тем же ID и outbox отмечен отправленным только после подтверждения.
+- [x] **T302** Учёт попыток и подтверждение обработки. После T301. [Протокол T302](docs/homework-05/protocols/s03-t302-t304.md#t302--ручной-ack-и-попытки).
+  - [x] Подключить Python-обработчик с ручным ack. Записывать номер попытки до запуска обработки, подтверждать доставку после записи результата или следующего действия в БД. Сверить порядок записи и ack по журналу и базе.
+  - [x] Вызвать временный сбой и перезапустить обработчик между попытками. Проверить три попытки с паузами 30 секунд и 2 минуты и сохранение счётчика.
+  - [x] Передать неподдерживаемый формат. Проверить окончательную ошибку без повторной попытки.
+- [x] **T303** Очередь ошибок и разбор сообщений. После T302. [Протокол T303](docs/homework-05/protocols/s03-t302-t304.md#t303--два-пути-в-очередь-ошибок).
+  - [x] Публиковать окончательные ошибки из outbox в реальную DLQ. Проверить доставку и ID ошибки.
+  - [x] Остановить маршрут в DLQ. Проверить сохранение ошибки и доставку с тем же ID после восстановления.
+  - [x] Направлять неисправимые сообщения в DLQ без повторной обработки. Передать неразбираемое сообщение, проверить маршрут и прочитать сообщение и причину с правами оператора.
+  - [x] Поставить исправное задание после проблемного. Проверить, что проблемное доступно для разбора в DLQ, а исправное завершилось.
+- [x] **T304** Повторная доставка и восстановление обработчика. После T302 и T303. [Протокол T304](docs/homework-05/protocols/s03-t302-t304.md#t304--повторная-выдача-и-блокировка) · [Регрессия T304](docs/homework-05/protocols/t304-recovery-regression.md).
+  - [x] Доставить то же сообщение дважды, в том числе после завершения. Сверить состояния и счётчик в PostgreSQL, сохранность готового результата и отсутствие второй обработки завершённой команды.
+  - [x] Остановить обработчик до коммита и после коммита до ack. После перезапуска сверить повторную выдачу, переходы состояний, отсутствие потерянных заданий и сохранность зафиксированного результата.
+  - [x] Воспроизвести разрыв канала, потерю heartbeat, таймаут ack при живом соединении и восстановление брокера. Сверить журнал RabbitMQ, повторную выдачу того же ID, состояние задания и последующий успешный приём.
+  - [x] При сбое PostgreSQL приостановить получение заданий. Проверить, что тот же worker продолжает работу после восстановления базы.
+  - [x] Ограничить ожидание блокировки и отменять его при потере канала. Проверить несколько разрывов и таймаут под удерживаемой блокировкой.
+
+## S04 · Обработка и просмотр видео
+
+- [ ] **T401** Подготовка видео в FFmpeg. После T204, T304 и решения U02 для вертикальных видео.
+  - [ ] Подтвердить у ментора трактовку верхней ступени для вертикали. Если предел — 720 пикселей по высоте, согласовать поправку DEC-003 и AC-003 до проверки вертикального результата.
+  - [ ] Проверить декодирование выбранных потоков MP4, MOV, MKV и WebM. На рабочих и повреждённых образцах сверить фактически поддержанные кодеки и ошибки.
+  - [ ] Настроить HLS и выбор ступеней 360p, 480p и 720p по размеру и ориентации исходника. Сверить выходные размеры, поворот и плейлисты для горизонтального, малого и вертикального исходника. Убедиться, что ни одна ступень не увеличивает исходник.
+- [ ] **T402** Публикация готовых файлов и защита папки. После T103 и T401.
+  - [ ] Записывать HLS в одну папку `processing` под блокировкой. Проверять список и хэши файлов, переименовывать каталог на том же томе и фиксировать `READY` в базе. Проверить, что незавершённые файлы недоступны по HTTP.
+  - [ ] Вызвать сбой после переименования до коммита. Проверить, что после перезапуска принят только полный результат текущего поколения, а частичный или устаревший не выдан.
+  - [ ] Повторно выдать задание, пока старый FFmpeg ещё пишет после остановки обработчика. Проверить, что новый обработчик ждёт освобождения блокировки и два процесса не пишут одновременно.
+- [ ] **T403** Публичный каталог, поиск и страница просмотра. После T402.
+  - [ ] Открыть каталог, поиск по названию и прямую страницу готового видео без входа. Проверить, что неготовое видео отсутствует в каталоге и недоступно по ссылке.
+  - [ ] Отдавать главный HLS-плейлист и сегменты через Nginx с проверкой готовности. Без входа открыть `master.m3u8` по рабочей ссылке, скачать указанные сегменты и проверить отказ для неготового видео.
+  - [ ] Подключить hls.js на странице. Открыть прямую ссылку и проверить, что видео воспроизводится.
+- [ ] **T404** Качества и браузеры. После T403.
+  - [ ] На исходнике достаточного размера проверить все три качества. На малых и вертикальных роликах сверить доступные варианты с плейлистом. Проверить автоматический режим и вручную переключить каждое доступное качество.
+  - [ ] Повторить проверку в настольных Chrome, Edge и Firefox. Записать версии браузеров, выбранные образцы, доступные качества и результат воспроизведения.
+
+## S05 · Управление своими видео
+
+[Подробный план S05](docs/implementation-plan-s05.md). Переименование и права владельца можно реализовать на базе S03; сквозные проверки повтора, удаления и выдачи требуют S04.
+
+**Частично:** переименование в API и кабинете, права владельца и CSRF реализованы и проверены. Каталог, поиск, прежняя ссылка и остальные действия S05 ждут S04. [Протокол переименования](docs/homework-05/protocols/s05-rename.md).
+
+- [ ] **T501** Переименование и повтор обработки из оригинала. После T403.
+  - [ ] Дать владельцу переименовать видео. Проверить новое название в кабинете, каталоге и поиске, прежнюю ссылку и отказ при прямом запросе от другого автора.
+  - [ ] Дать владельцу повторить обработку после устранимого сбоя. Убрать причину и проверить успешный повтор из того же оригинала без новой передачи и смены ссылки, отказ для чужого запроса и понятную ошибку для повреждённого оригинала.
+- [ ] **T502** Запрет доступа и безопасная очистка при удалении. После T402 и T403.
+  - [ ] При удалении записать отметку в базе, отозвать поколение и отменить ожидающее уведомление. Проверить отказ для чужого запроса, исчезновение из каталога и отказ новых запросов к странице, плейлисту и сегментам.
+  - [ ] Остановить FFmpeg при удалении. Проверить, что запись в удалённую папку не возобновилась.
+  - [ ] Очистить оригинал, временные и готовые файлы под общей блокировкой. Прервать очистку, повторить её и проверить отсутствие файлов.
+- [ ] **T503** Удаление при одновременных операциях и после перезапуска. После T502, внешний сценарий дополнить после T602.
+  - [ ] Удалить видео во время обработки и между переименованием и коммитом публикации. Проверить отказ новых запросов, остановку записи и отсутствие повторной публикации.
+  - [ ] Перезапустить сервис посреди очистки. Проверить, что отметка осталась в журнале удалений, доступ закрыт и очистка завершилась.
+  - [ ] После T602 удалить видео при ожидающем и уже начатом уведомлении. Проверить отмену ожидающего запроса. Если строка уже записана, проверить, что она сохранилась, а ссылка закрыта.
+
+## S06 · Уведомления через n8n и Google Таблицу
+
+После S04–S05. Действующий процесс n8n менять только по отдельному разрешению.
+
+- [ ] **T601** Доступ и контракт с n8n. После T403 и разрешения владельца среды.
+  - [ ] Подтвердить доступ к n8n, выделенной учебной вкладке и ссылке на плейлист из среды получателя. Проверить тестовый HTTPS-запрос, запись в учебную вкладку и открытие ссылки.
+  - [ ] Согласовать способ подписи с учётом возможностей установки. На тестовом получателе проверить принятие подлинного запроса, отказ при неверной подписи и подтверждение только после записи. Зафиксировать контракт и план настройки.
+- [ ] **T602** Отправка готовой ссылки и подтверждение записи. После T502 и T601.
+  - [ ] Создавать событие после `READY` и доставлять его отдельно от обработки. Проверить, что до готовности запроса нет, а при недоступном получателе готовое видео воспроизводится.
+  - [ ] Закрепить за событием одну строку, записывать название, время UTC и ссылку на `master.m3u8`. Прогнать реальный вызов n8n, сверить единственную строку, время и открытие ссылки.
+  - [ ] Помечать доставку успешной после подтверждения записи с тем же ID события. Подать успешный HTTP-ответ без подходящего тела и убедиться, что доставка остаётся неподтверждённой.
+- [ ] **T603** Повторы уведомления и конфликт строки. После T602.
+  - [ ] Вызвать временный отказ получателя. Проверить пять попыток в течение часа.
+  - [ ] Повторить доставку вручную после устранения причины. Проверить тот же ID события и результат записи.
+  - [ ] Потерять ответ после успешной записи и повторить запрос, в том числе параллельно. Проверить, что обновилась та же строка, второй строки и повторной конвертации нет.
+  - [ ] Подставить чужой ID в закреплённую строку. Проверить остановку отправки без перезаписи, затем устранить конфликт и повторить доставку вручную.
+
+## S07 · Диагностика и автоматические проверки
+
+После сквозного пути S06 или согласования тестового получателя.
+
+- [ ] **T701** Логи и сквозная трассировка. После T304 и T403.
+  - [ ] Добавить структурированные JSON-логи с ID запроса, задания и события в API, outbox и обработчик. Найти записи одного реального задания по ID и проверить отсутствие секретов.
+  - [ ] Передавать контекст OpenTelemetry через HTTP, PostgreSQL outbox и RabbitMQ. Открыть сквозную трассу в Tempo и сверить длительность загрузки, ожидания и обработки.
+- [ ] **T702** Метрики, панель и готовность компонентов. После T701.
+  - [ ] Собрать в Prometheus метрики длительности, ошибок, возраста outbox и глубины очередей. Показать их в Grafana, вызвать реальный сбой и по панели определить, где остановилась работа.
+  - [ ] Настроить отдельные проверки запуска и готовности всех компонентов. По очереди отключить зависимости и проверить, что готовность показывает недоступную зависимость, а проверка запуска процесса продолжает отвечать.
+  - [ ] Настроить ограничение размера и ротацию логов. Вызвать ротацию и сверить количество файлов.
+  - [ ] Проверить P01–P10 на собранном стенде. Сверить запуск, настройки, здоровье, логи, трассу, метрики и панель.
+- [ ] **T703** Автоматические проверки в CI. После T404 и T702.
+  - [ ] Расширить базовый CI S01 проверками lint, pytest, Playwright и интеграцией с PostgreSQL и RabbitMQ на небольших файлах. Локально прогнать права, лимит, переходы состояний, повторную доставку и сценарий браузера.
+  - [ ] После разрешения на Git-операции запустить GitHub Actions на последнем коммите. Сверить SHA и результат каждого задания, записать ссылку на прогон.
+
+## S08 · Копии, восстановление и приёмка
+
+После S07. Подготовить отдельный носитель и учебную среду, проверить ресурсы на диске с томами.
+
+- [ ] **T801** Согласованная резервная копия. После T503, T603 и T702.
+  - [ ] Согласовать носитель, срок хранения, допустимую потерю данных, целевое время восстановления, паузу записи и учёт удалений. Проверить доступность и объём носителя отдельно от рабочих данных.
+  - [ ] Приостановить запись и сделать дамп PostgreSQL. Проверить, что дамп читается и учтена отметка журнала удалений.
+  - [ ] Скопировать видео со списком и хэшами файлов в том же согласованном снимке. Сверить хэши копии.
+- [ ] **T802** Восстановление базы и видео. После T801.
+  - [ ] Восстановить дамп в чистой PostgreSQL. Сверить связи в базе и засечь время восстановления.
+  - [ ] Вернуть файлы в отдельной среде. Сверить список и хэши, записать время восстановления файлов.
+  - [ ] Применить журнал удалений и сверить занятые строки Google Таблицы с ID событий до открытия доступа и отправки. Проверить, что удалённое видео недоступно, готовое воспроизводится и старое событие не создаёт вторую строку.
+- [ ] **T803** Запуск, обновление и восстановление по инструкции. После T802.
+  - [ ] Воспроизвести чистый запуск по инструкции с настройками и тестовыми секретами. Проверить страницу и готовность компонентов.
+  - [ ] Выбрать версию для обновления и проверить миграции и данные на копии. Проверить предусмотренный способ возврата к рабочей версии или восстановления из копии.
+  - [ ] Повторить восстановление по инструкции. Записать проверенные команды трёх процедур в `README.md` и `operations.md`, результаты и время — в протокол.
+- [ ] **T804** Большой файл и итоговая приёмка. После T202, T404, T603, T703 и T803.
+  - [ ] Согласовать учебный исходник 3–5 ГБ в пределах 5 ГиБ и сверить память и место на диске томов. Прогнать передачу и обработку, сверить хэш оригинала и воспроизведение, проверить отзывчивость каталога и записать время и расход ресурсов.
+  - [ ] Сверить AC-001–009, применимые F и P11–P13 с результатами. Внести доказательства в `testing-report.md`, `production-practice.md` и матрицу, результаты копии и восстановления — в `backup-restore.md`. Для незапущенных проверок указать `Not Run` и причину.
+
+## Отдельно для ДЗ №5
+
+- [ ] **X001** Выполнить P01–P13 и проверить F15 для KazanCourts.
+- [ ] **X002** Подготовить Level 5 A/B/C, повторить очереди и интеграции, оформить Review 01 и доказательства CP4/CP5.
+- [ ] **X003** После общей готовности согласовать критерий защиты, пройти защиту и ревью ментора, оформить Learning Pack по Addendum.
+
+КОНЕЦ ФАЙЛА: tasks.md
+
+================================================================================
+НАЧАЛО ФАЙЛА: web/src/main.ts
+================================================================================
+import { createApp, h, onMounted, ref } from "vue";
+
+import { api, ApiError, sendFile, type Session, type Video } from "./api";
+import "./style.css";
+
+function messageOf(error: unknown) {
+  return error instanceof Error ? error.message : "Сервис недоступен.";
+}
+
+createApp({
+  setup() {
+    const session = ref<Session>();
+    const videos = ref<Video[]>([]);
+    const registering = ref(false);
+    const busy = ref(false);
+    const error = ref("");
+    const status = ref("");
+    const progress = ref<number>();
+    const pending = ref<string>();
+    const editing = ref<string>();
+    const editedTitle = ref("");
+
+    async function loadVideos() {
+      videos.value = (await api<{ videos: Video[] }>("/api/videos")).videos;
+    }
+
+    async function run(action: () => Promise<void>) {
+      error.value = "";
+      busy.value = true;
+      try {
+        await action();
+      } catch (failure) {
+        error.value = messageOf(failure);
+      } finally {
+        busy.value = false;
+      }
+    }
+
+    function refreshSession() {
+      return run(async () => {
+        session.value = await api<Session>("/api/auth/session");
+        if (session.value.username) await loadVideos();
+      });
+    }
+    onMounted(refreshSession);
+
+    async function submitCredentials(event: Event) {
+      event.preventDefault();
+      if (!session.value) return;
+      const form = event.currentTarget as HTMLFormElement;
+      const data = Object.fromEntries(new FormData(form));
+      const csrf = session.value.csrf_token;
+      await run(async () => {
+        status.value = "";
+        if (registering.value) {
+          await api("/api/auth/register", { csrf, data });
+          status.value = "Аккаунт создан. Теперь войдите.";
+          registering.value = false;
+        } else {
+          session.value = await api<Session>("/api/auth/login", { csrf, data });
+          await loadVideos();
+        }
+        form.reset();
+      });
+    }
+
+    async function completeUpload(csrf: string) {
+      if (!pending.value) return;
+      status.value = "Проверяем файл";
+      try {
+        await api("/api/uploads/" + pending.value + "/complete", { csrf });
+      } catch (failure) {
+        if (failure instanceof ApiError && failure.status < 500 && !failure.retryAfter) {
+          pending.value = undefined;
+          status.value = "";
+        } else {
+          status.value = "Проверку можно повторить";
+        }
+        throw failure;
+      }
+      pending.value = undefined;
+      status.value = "Видео принято и ожидает обработки";
+    }
+
+    async function submitUpload(event: Event) {
+      event.preventDefault();
+      if (!session.value || pending.value) return;
+      const form = event.currentTarget as HTMLFormElement;
+      const data = new FormData(form);
+      const file = data.get("file");
+      if (!(file instanceof File) || !file.size) {
+        error.value = "Выберите непустой файл.";
+        return;
+      }
+      const csrf = session.value.csrf_token;
+      await run(async () => {
+        progress.value = 0;
+        status.value = "Передаём файл";
+        try {
+          const upload = await api<{ id: string }>("/api/uploads", {
+            csrf, data: { title: data.get("title"), size: file.size },
+          });
+          await sendFile(upload.id, file, csrf, (percent) => { progress.value = percent; });
+          progress.value = 100;
+          pending.value = upload.id;
+          form.reset();
+        } catch (failure) {
+          status.value = "";
+          progress.value = undefined;
+          throw failure;
+        }
+        await completeUpload(csrf);
+        await loadVideos();
+      });
+    }
+
+    function retryCompletion() {
+      const csrf = session.value?.csrf_token;
+      if (!csrf) return;
+      return run(async () => {
+        await completeUpload(csrf);
+        await loadVideos();
+      });
+    }
+
+    function signOut() {
+      const csrf = session.value?.csrf_token;
+      if (!csrf) return;
+      return run(async () => {
+        session.value = await api<Session>("/api/auth/logout", { csrf });
+        videos.value = [];
+        status.value = "";
+        progress.value = undefined;
+        pending.value = undefined;
+        editing.value = undefined;
+        editedTitle.value = "";
+      });
+    }
+
+    function startRename(video: Video) {
+      editing.value = video.id;
+      editedTitle.value = video.title;
+      error.value = "";
+      status.value = "";
+    }
+
+    function submitRename(event: Event) {
+      event.preventDefault();
+      const csrf = session.value?.csrf_token;
+      const id = editing.value;
+      if (!csrf || !id || busy.value) return;
+      return run(async () => {
+        const updated = await api<Video>("/api/videos/" + id + "/rename", {
+          csrf, data: { title: editedTitle.value },
+        });
+        videos.value = videos.value.map((video) => video.id === id ? updated : video);
+        editing.value = undefined;
+        status.value = "Название сохранено";
+      });
+    }
+
+    function credentials() {
+      return h("section", { "data-testid": "auth-screen", "aria-labelledby": "auth-title" }, [
+        h("h2", { id: "auth-title" }, registering.value ? "Регистрация" : "Вход"),
+        h("form", { onSubmit: submitCredentials }, [
+          h("label", ["Имя пользователя", h("input", {
+            name: "username", autocomplete: "username", required: true, maxlength: 150,
+          })]),
+          h("label", ["Пароль", h("input", {
+            name: "password", type: "password", required: true,
+            autocomplete: registering.value ? "new-password" : "current-password",
+          })]),
+          h("div", { class: "actions" }, [
+            h("button", { type: "submit", disabled: busy.value }, registering.value ? "Зарегистрироваться" : "Войти"),
+            h("button", {
+              type: "button", class: "secondary", disabled: busy.value,
+              onClick: () => {
+                registering.value = !registering.value;
+                error.value = "";
+                status.value = "";
+              },
+            }, registering.value ? "Ко входу" : "Создать аккаунт"),
+          ]),
+        ]),
+      ]);
+    }
+
+    function cabinet() {
+      return h("section", { "aria-labelledby": "cabinet-title" }, [
+        h("div", { class: "cabinet-header" }, [
+          h("h2", { id: "cabinet-title" }, "Кабинет · " + session.value?.username),
+          h("button", { class: "secondary", disabled: busy.value, onClick: signOut }, "Выйти"),
+        ]),
+        h("form", { onSubmit: submitUpload }, [
+          h("label", ["Название видео", h("input", { name: "title", required: true, maxlength: 200 })]),
+          h("label", ["Видеофайл", h("input", {
+            name: "file", type: "file", accept: ".mp4,.mov,.mkv,.webm", required: true,
+          })]),
+          h("div", { class: "actions" }, [
+            h("button", { type: "submit", disabled: busy.value || !!pending.value }, "Загрузить"),
+            pending.value && !busy.value
+              ? h("button", { type: "button", onClick: retryCompletion }, "Повторить проверку")
+              : null,
+          ]),
+          progress.value === undefined ? null : h("div", { class: "progress" }, [
+            h("progress", { value: progress.value, max: 100, "aria-label": "Прогресс загрузки" }),
+            h("output", progress.value + " %"),
+          ]),
+        ]),
+        h("h3", "Мои видео"),
+        videos.value.length
+          ? h("ul", { class: "videos" }, videos.value.map((video) => h("li", { key: video.id }, [
+            h("strong", video.title),
+            h("span", video.state === "QUEUED" ? "Ожидает обработки" : video.state),
+            editing.value === video.id
+              ? h("form", { onSubmit: submitRename, "aria-label": "Переименование видео" }, [
+                h("label", ["Новое название", h("input", {
+                  name: "title", required: true, maxlength: 200, value: editedTitle.value,
+                  disabled: busy.value,
+                  onInput: (event: Event) => { editedTitle.value = (event.target as HTMLInputElement).value; },
+                })]),
+                h("div", { class: "actions" }, [
+                  h("button", { type: "submit", disabled: busy.value }, "Сохранить"),
+                  h("button", {
+                    type: "button", class: "secondary", disabled: busy.value,
+                    onClick: () => { editing.value = undefined; error.value = ""; },
+                  }, "Отмена"),
+                ]),
+              ])
+              : h("button", {
+                type: "button", class: "secondary", disabled: busy.value,
+                onClick: () => startRename(video),
+              }, "Переименовать"),
+          ])))
+          : h("p", "Здесь появятся загруженные видео."),
+      ]);
+    }
+
+    return () => h("main", [
+      h("h1", "VidHarbor"),
+      session.value?.username ? cabinet() : session.value ? credentials() : null,
+      !session.value && !busy.value
+        ? h("button", { onClick: refreshSession }, "Повторить подключение")
+        : null,
+      status.value ? h("p", { role: "status" }, status.value) : null,
+      error.value ? h("p", { role: "alert" }, error.value) : null,
+    ]);
+  },
+}).mount("#app");
+
+КОНЕЦ ФАЙЛА: web/src/main.ts
+
+================================================================================
+НАЧАЛО ФАЙЛА: web/src/style.css
+================================================================================
+body {
+  background: #edf4f8;
+  color: #172d40;
+  font: 1rem/1.55 system-ui, sans-serif;
+  margin: 0;
+}
+
+main {
+  background: white;
+  border: 1px solid #c9dce8;
+  border-radius: 1rem;
+  box-sizing: border-box;
+  margin: clamp(1rem, 8vh, 5rem) auto;
+  max-width: min(42rem, calc(100% - 2rem));
+  padding: clamp(1.25rem, 5vw, 3rem);
+}
+
+h1 {
+  font-size: clamp(2.25rem, 6vw, 3.5rem);
+  line-height: 1.1;
+  margin: 0 0 1.5rem;
+}
+
+form, label {
+  display: grid;
+  gap: .5rem;
+}
+
+form {
+  gap: 1rem;
+}
+
+input, button {
+  font: inherit;
+}
+
+input {
+  border: 1px solid #8da6b8;
+  border-radius: .4rem;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: .5rem .65rem;
+  width: 100%;
+}
+
+button {
+  background: #085d88;
+  border: 1px solid #085d88;
+  border-radius: .4rem;
+  color: white;
+  cursor: pointer;
+  padding: .45rem .85rem;
+}
+
+button.secondary {
+  background: white;
+  color: #085d88;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: .65;
+}
+
+.actions, .cabinet-header, .progress {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+}
+
+.cabinet-header {
+  justify-content: space-between;
+}
+
+.progress progress {
+  flex: 1;
+  min-width: 7rem;
+  accent-color: #085d88;
+}
+
+.videos {
+  list-style: none;
+  padding: 0;
+}
+
+.videos li {
+  border-top: 1px solid #c9dce8;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem 1rem;
+  justify-content: space-between;
+  overflow-wrap: anywhere;
+  padding: .6rem 0;
+}
+
+.videos form {
+  width: 100%;
+}
+
+[role="alert"] {
+  color: #9e2424;
+}
+
+КОНЕЦ ФАЙЛА: web/src/style.css
