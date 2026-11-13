@@ -67,6 +67,10 @@ RABBITMQ_USER = os.environ["RABBITMQ_USER"]
 RABBITMQ_PASSWORD = read_secret("rabbitmq_password")
 
 MEDIA_ROOT = Path("/var/lib/vidharbor")
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://127.0.0.1:8085").rstrip("/")
+FFMPEG_TIMEOUT = int(os.getenv("FFMPEG_TIMEOUT", "10800"))
+if not 1 <= FFMPEG_TIMEOUT <= 10800:
+    raise ValueError("FFMPEG_TIMEOUT must be between 1 second and 3 hours")
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", "5368709120"))
 if not 1 <= MAX_UPLOAD_BYTES <= 5 * 1024**3:
     raise ValueError("MAX_UPLOAD_BYTES must be between 1 and 5368709120")

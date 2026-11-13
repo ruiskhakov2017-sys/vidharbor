@@ -26,6 +26,8 @@ services:
     build: ./web
     ports:
       - "127.0.0.1:${VIDHARBOR_PORT:-8085}:80"
+    volumes:
+      - media_data:/var/lib/vidharbor:ro
     depends_on:
       api:
         condition: service_healthy
@@ -91,6 +93,30 @@ services:
     restart: on-failure
     mem_limit: 128m
     cpus: 0.5
+
+  worker:
+    <<: *django
+    build:
+      context: ./api
+      target: upload
+    environment:
+      DB_NAME: ${VIDHARBOR_DB_NAME:-vidharbor}
+      DB_USER: ${VIDHARBOR_DB_USER:-vidharbor}
+      RABBITMQ_USER: ${VIDHARBOR_RABBITMQ_USER:-vidharbor}
+      PUBLIC_BASE_URL: ${VIDHARBOR_PUBLIC_BASE_URL:-http://127.0.0.1:${VIDHARBOR_PORT:-8085}}
+      FFMPEG_TIMEOUT: ${VIDHARBOR_FFMPEG_TIMEOUT:-10800}
+    command: ["python", "manage.py", "transcode_videos"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - media_data:/var/lib/vidharbor
+    init: true
+    restart: on-failure
+    mem_limit: 1024m
+    cpus: 2
 
   db:
     image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777

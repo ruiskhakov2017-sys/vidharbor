@@ -97,3 +97,31 @@ button:disabled {
 [role="alert"] {
   color: #9e2424;
 }
+
+.nav {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+a {
+  color: #085d88;
+}
+
+.player {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  background: #172d40;
+  border-radius: .5rem;
+}
+
+.quality {
+  margin-top: .75rem;
+  width: fit-content;
+}
+
+.quality select {
+  font: inherit;
+  padding: .3rem;
+}

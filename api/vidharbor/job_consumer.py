@@ -10,7 +10,7 @@ import pika
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections, connection as database
 
-from .job_attempts import MAX_ATTEMPTS, begin_attempt, finish_attempt
+from .job_attempts import MAX_ATTEMPTS, execute_attempt
 from .management.commands.relay_outbox import QUEUE, connect
 from .models import Job
 
@@ -94,7 +94,7 @@ def confirm_active_delivery(connection, channel, cancelled, database_unavailable
     return False
 
 
-def run_consumer(processor, *, heartbeat=30, lock_timeout=LOCK_TIMEOUT):
+def run_consumer(processor=None, *, delivery_handler=None, heartbeat=30, lock_timeout=LOCK_TIMEOUT):
     """Consume using a supplied processor; callers must configure a safe DLX."""
     database_unavailable = threading.Event()
     while True:
@@ -157,13 +157,10 @@ def run_consumer(processor, *, heartbeat=30, lock_timeout=LOCK_TIMEOUT):
                                     logger.warning("Media lock wait expired for message %s", payload["message_id"])
                                     delivery_connection.add_callback_threadsafe(abandon)
                                 return
-                            attempt = begin_attempt(
-                                job.id, payload["generation"], payload["next_attempt_no"], payload,
-                                cancelled=delivery_cancelled,
-                            )
-                            if attempt is not None:
-                                outcome, reason = processor(job, attempt, lock.fileno())
-                                finish_attempt(attempt, outcome, payload, reason)
+                            if delivery_handler is None:
+                                execute_attempt(job, payload, lock.fileno(), delivery_cancelled, processor)
+                            else:
+                                delivery_handler(job, payload, lock.fileno(), delivery_cancelled)
                         delivery_connection.add_callback_threadsafe(complete)
                     except DATABASE_ERRORS:
                         database_unavailable.set()
