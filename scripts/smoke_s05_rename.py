@@ -12,6 +12,7 @@ from smoke_s02 import BASE_URL, COMPOSE, register_and_sign_in
 
 
 def main():
+    expect.set_options(timeout=45000)
     suffix = uuid.uuid4().hex[:12]
     owner, other = f"s05_owner_{suffix}", f"s05_other_{suffix}"
     password = secrets.token_urlsafe(24)
@@ -32,7 +33,7 @@ def main():
             "print(video.id)"
         )
         video_id = subprocess.check_output(
-            [*COMPOSE, "api", "python", "manage.py", "shell", "-c", code], text=True, timeout=30,
+            [*COMPOSE, "api", "python", "manage.py", "shell", "-c", code], text=True, timeout=120,
         ).strip().splitlines()[-1]
         uuid.UUID(video_id)
         page.reload()

@@ -29,6 +29,7 @@ class Upload(models.Model):
 class Video(models.Model):
     class State(models.TextChoices):
         QUEUED = "QUEUED"
+        READY = "READY"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     upload = models.OneToOneField(Upload, on_delete=models.PROTECT)
@@ -37,6 +38,8 @@ class Video(models.Model):
     generation = models.PositiveIntegerField(default=1)
     state = models.CharField(max_length=12, choices=State, default=State.QUEUED)
     created_at = models.DateTimeField(auto_now_add=True)
+    published_generation = models.PositiveIntegerField(null=True)
+    ready_at = models.DateTimeField(null=True)
 
 
 class Job(models.Model):

@@ -4,9 +4,9 @@
 
 **Стек:** Vue + TypeScript, Django + Django REST Framework, PostgreSQL, RabbitMQ, собственный Python worker, FFmpeg, HLS/hls.js, Nginx, n8n/Google Sheets, Docker Compose, OpenTelemetry, Prometheus, Grafana и Tempo. Базовые проверки Compose запускаются через GitHub Actions. Полный набор CI запланирован на S07.
 
-**Текущий этап** — S03. После загрузки оригинал сохраняется в закрытом томе, а задание и запись outbox — в PostgreSQL. Relay доставляет задания в RabbitMQ. При обычном запуске задания ждут обработчика S04. Тестовый обработчик S03 запускается отдельно на изолированном стенде.
+**Текущий этап** — S04. Штатный worker забирает задания из RabbitMQ и готовит HLS из оригиналов на закрытом томе. Готовые ролики доступны без входа в каталоге, по прямой ссылке и в плеере с выбором качества.
 
-[Протокол локальных проверок S02](docs/homework-05/protocols/s02-auth-upload.md) · [Результаты S03](docs/homework-05/testing-report.md#s03).
+[Протокол локальных проверок S02](docs/homework-05/protocols/s02-auth-upload.md) · [Результаты S03](docs/homework-05/testing-report.md#s03) · [Протокол S04](docs/homework-05/protocols/s04-hls.md).
 
 ## Локальный запуск
 
@@ -26,9 +26,9 @@ foreach ($name in @('django_secret_key', 'postgres_password', 'rabbitmq_password
 docker compose --project-name vidharbor --env-file .env.example up --build -d --wait --wait-timeout 180
 ```
 
-Откройте `http://127.0.0.1:8085/`. В [.env.example](.env.example) указаны порт, имена и путь к папке секретов. Сами файлы `secrets/` исключены из Git и передаются контейнерам через Compose. PostgreSQL и RabbitMQ доступны внутри сети проекта. Образы закреплены по digest, зависимости — в [requirements.txt](api/requirements.txt) и [package-lock.json](web/package-lock.json).
+Откройте `http://127.0.0.1:8085/`. Здесь находится кабинет автора. Каталог доступен по `http://127.0.0.1:8085/catalog`. В [.env.example](.env.example) указаны порт, имена и путь к папке секретов. Сами файлы `secrets/` исключены из Git и передаются контейнерам через Compose. PostgreSQL и RabbitMQ доступны внутри сети проекта. Образы закреплены по digest, зависимости — в [requirements.txt](api/requirements.txt) и [package-lock.json](web/package-lock.json).
 
-При первом запуске Compose применяет миграции PostgreSQL. Откройте экран входа, создайте аккаунт, войдите и выберите MP4, MOV, MKV или WebM. Лимит по умолчанию — 5 ГиБ. В кабинете видны ход передачи и статус «Ожидает обработки». При обрыве начните передачу заново. Если пропал ответ на завершение, нажмите «Повторить проверку».
+При первом запуске Compose применяет миграции PostgreSQL. Откройте экран входа, создайте аккаунт, войдите и выберите MP4, MOV, MKV или WebM. Лимит по умолчанию — 5 ГиБ. В кабинете видны ход передачи и состояние обработки. У готового видео появляется ссылка на просмотр. При обрыве начните передачу заново. Если пропал ответ на завершение, нажмите «Повторить проверку».
 
 Оригиналы и временные части находятся в томе `media_data`, который не подключён к Nginx. Незавершённые части удаляются после 24 часов без активности. Для проверки граничных размеров на небольших образцах задайте `VIDHARBOR_MAX_UPLOAD_BYTES` на отдельном тестовом стенде.
 
@@ -41,6 +41,8 @@ docker compose --project-name vidharbor --env-file .env.example up --build -d --
 curl.exe -i http://127.0.0.1:8085/health/live
 curl.exe -i http://127.0.0.1:8085/health/ready
 ```
+
+Для абсолютной ссылки в событии `video.ready` можно задать `VIDHARBOR_PUBLIC_BASE_URL`. По умолчанию используется адрес локального Compose с выбранным портом. Таймаут FFmpeg задаёт `VIDHARBOR_FFMPEG_TIMEOUT` в секундах, по умолчанию `10800`.
 
 Проверенные версии S01: Node.js 24.22.2, Vue 3.5.45, TypeScript 5.9.3, Vite 7.3.8, Nginx 1.30.6, Python 3.13.18, Django 5.2.19, Django REST Framework 3.16.1, PostgreSQL 16.14 и RabbitMQ 4.2.9.
 

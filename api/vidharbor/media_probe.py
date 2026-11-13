@@ -38,7 +38,7 @@ def ebml_document_type(path):
     return b""
 
 
-def check_video(path):
+def probe_video(path):
     try:
         result = subprocess.run(
             [
@@ -50,7 +50,8 @@ def check_video(path):
                 "-max_streams", "64",
                 "-enable_drefs", "0",
                 "-show_entries", "format=format_name:format_tags=major_brand:"
-                "stream=codec_type,codec_name,width,height:stream_disposition=attached_pic",
+                "stream=index,codec_type,codec_name,width,height,sample_aspect_ratio:"
+                "stream_disposition=attached_pic,default:stream_side_data=rotation:stream_tags=rotate",
                 "-of", "json",
                 str(path),
             ],
@@ -89,3 +90,8 @@ def check_video(path):
         raise InvalidVideo("В файле не найден видеопоток.")
     if any(stream.get("codec_type") == "audio" and not stream.get("codec_name") for stream in streams):
         raise InvalidVideo("Не удалось распознать аудиопоток.")
+    return streams
+
+
+def check_video(path):
+    probe_video(path)

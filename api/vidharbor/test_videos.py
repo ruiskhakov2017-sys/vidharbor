@@ -59,6 +59,24 @@ class RenameVideoTests(TestCase):
         self.video.refresh_from_db()
         self.assertEqual(self.video.title, "Прежнее")
 
+    def test_rename_response_matches_cabinet_for_current_job_and_ready_video(self):
+        for state in (Job.State.PROCESSING, Job.State.RETRY_WAIT, Job.State.FAILED):
+            with self.subTest(state=state):
+                Job.objects.filter(pk=self.job.pk).update(state=state)
+                response = self.rename("Новое название")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["state"], state)
+                self.assertEqual(response.json(), self.client.get("/api/videos").json()["videos"][0])
+
+        Video.objects.filter(pk=self.video.pk).update(
+            state=Video.State.READY, published_generation=self.video.generation,
+        )
+        response = self.rename("Готовое видео")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["state"], Video.State.READY)
+        self.assertEqual(response.json()["watch_url"], f"/watch/{self.video.pk}")
+        self.assertEqual(response.json(), self.client.get("/api/videos").json()["videos"][0])
+
     def test_requires_session_and_csrf(self):
         response = self.client.post(self.url, {"title": "Без CSRF"}, content_type="application/json")
         self.assertEqual(response.status_code, 403)

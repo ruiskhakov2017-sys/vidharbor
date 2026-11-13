@@ -1,6 +1,7 @@
-import { createApp, h, onMounted, ref } from "vue";
+import { createApp, h, onBeforeUnmount, onMounted, ref } from "vue";
 
 import { api, ApiError, sendFile, type Session, type Video } from "./api";
+import { PublicVideos } from "./public-videos";
 import "./style.css";
 
 function messageOf(error: unknown) {
@@ -9,6 +10,10 @@ function messageOf(error: unknown) {
 
 createApp({
   setup() {
+    const path = window.location.pathname;
+    if (path === "/catalog" || path.startsWith("/watch/")) {
+      return () => h(PublicVideos, { videoId: path.startsWith("/watch/") ? path.slice(7) : "" });
+    }
     const session = ref<Session>();
     const videos = ref<Video[]>([]);
     const registering = ref(false);
@@ -20,8 +25,12 @@ createApp({
     const editing = ref<string>();
     const editedTitle = ref("");
 
+    let videoListRequest = 0;
+
     async function loadVideos() {
-      videos.value = (await api<{ videos: Video[] }>("/api/videos")).videos;
+      const request = ++videoListRequest;
+      const result = await api<{ videos: Video[] }>("/api/videos");
+      if (request === videoListRequest) videos.value = result.videos;
     }
 
     async function run(action: () => Promise<void>) {
@@ -43,6 +52,13 @@ createApp({
       });
     }
     onMounted(refreshSession);
+    const statusPoll = window.setInterval(() => {
+      if (session.value?.username && !busy.value &&
+          videos.value.some((video) => ["QUEUED", "PROCESSING", "RETRY_WAIT"].includes(video.state))) {
+        void loadVideos().catch(() => { /* Retry on the next poll. */ });
+      }
+    }, 3000);
+    onBeforeUnmount(() => window.clearInterval(statusPoll));
 
     async function submitCredentials(event: Event) {
       event.preventDefault();
@@ -128,6 +144,7 @@ createApp({
       if (!csrf) return;
       return run(async () => {
         session.value = await api<Session>("/api/auth/logout", { csrf });
+        ++videoListRequest;
         videos.value = [];
         status.value = "";
         progress.value = undefined;
@@ -153,6 +170,8 @@ createApp({
         const updated = await api<Video>("/api/videos/" + id + "/rename", {
           csrf, data: { title: editedTitle.value },
         });
+        // Earlier polls may still be in flight with the title from before the rename.
+        ++videoListRequest;
         videos.value = videos.value.map((video) => video.id === id ? updated : video);
         editing.value = undefined;
         status.value = "Название сохранено";
@@ -162,7 +181,7 @@ createApp({
     function credentials() {
       return h("section", { "data-testid": "auth-screen", "aria-labelledby": "auth-title" }, [
         h("h2", { id: "auth-title" }, registering.value ? "Регистрация" : "Вход"),
-        h("form", { onSubmit: submitCredentials }, [
+        h("form", { key: "credentials", onSubmit: submitCredentials }, [
           h("label", ["Имя пользователя", h("input", {
             name: "username", autocomplete: "username", required: true, maxlength: 150,
           })]),
@@ -191,7 +210,7 @@ createApp({
           h("h2", { id: "cabinet-title" }, "Кабинет · " + session.value?.username),
           h("button", { class: "secondary", disabled: busy.value, onClick: signOut }, "Выйти"),
         ]),
-        h("form", { onSubmit: submitUpload }, [
+        h("form", { key: "upload", onSubmit: submitUpload }, [
           h("label", ["Название видео", h("input", { name: "title", required: true, maxlength: 200 })]),
           h("label", ["Видеофайл", h("input", {
             name: "file", type: "file", accept: ".mp4,.mov,.mkv,.webm", required: true,
@@ -211,7 +230,9 @@ createApp({
         videos.value.length
           ? h("ul", { class: "videos" }, videos.value.map((video) => h("li", { key: video.id }, [
             h("strong", video.title),
-            h("span", video.state === "QUEUED" ? "Ожидает обработки" : video.state),
+            video.state === "READY"
+              ? h("a", { href: video.watch_url }, "Готово · Смотреть")
+              : h("span", video.state === "FAILED" ? "Не удалось обработать" : "Обрабатывается"),
             editing.value === video.id
               ? h("form", { onSubmit: submitRename, "aria-label": "Переименование видео" }, [
                 h("label", ["Новое название", h("input", {
@@ -238,6 +259,7 @@ createApp({
 
     return () => h("main", [
       h("h1", "VidHarbor"),
+      h("nav", { class: "nav" }, [h("a", { href: "/catalog" }, "Каталог")]),
       session.value?.username ? cabinet() : session.value ? credentials() : null,
       !session.value && !busy.value
         ? h("button", { onClick: refreshSession }, "Повторить подключение")

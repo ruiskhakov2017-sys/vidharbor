@@ -80,7 +80,7 @@ def begin_attempt(job_id, generation, number, payload, *, cancelled=None):
 
 
 @transaction.atomic
-def finish_attempt(attempt_id, outcome, payload, reason=""):
+def finish_attempt(attempt_id, outcome, payload, reason="", *, publish=None):
     attempt = Attempt.objects.select_related("job").get(pk=attempt_id)
     job = Job.objects.select_for_update().get(pk=attempt.job_id)
     attempt.refresh_from_db()
@@ -88,6 +88,13 @@ def finish_attempt(attempt_id, outcome, payload, reason=""):
         return
     attempt.finished_at = timezone.now()
     attempt.reason = reason
+    if outcome == "success" and publish is not None and not publish(job):
+        job.state = Job.State.FAILED
+        job.save(update_fields=["state"])
+        attempt.state = Attempt.State.FAILED
+        attempt.reason = "obsolete_generation"
+        attempt.save(update_fields=["state", "reason", "finished_at"])
+        return
     if outcome == "success":
         attempt.state = Attempt.State.SUCCEEDED
         job.state = Job.State.SUCCEEDED
@@ -99,3 +106,12 @@ def finish_attempt(attempt_id, outcome, payload, reason=""):
         attempt.state = Attempt.State.FAILED
         queue_terminal(job, attempt, reason)
     attempt.save(update_fields=["state", "reason", "finished_at"])
+
+
+def execute_attempt(job, payload, lock_fd, cancelled, processor, *, publish=None):
+    attempt = begin_attempt(
+        job.id, payload["generation"], payload["next_attempt_no"], payload, cancelled=cancelled,
+    )
+    if attempt is not None:
+        outcome, reason = processor(job, attempt, lock_fd)
+        finish_attempt(attempt, outcome, payload, reason, publish=publish)

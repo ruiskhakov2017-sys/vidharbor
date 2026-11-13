@@ -23,6 +23,7 @@ from .storage import (
     part_path,
     sync_directory,
 )
+from .videos import cabinet_item, cabinet_videos
 
 
 class IncompleteBody(ValueError):
@@ -41,8 +42,8 @@ def describe_upload(upload):
 @never_cache
 @require_author
 def videos(request):
-    videos = Video.objects.filter(owner=request.user).order_by("-created_at")
-    return JsonResponse({"videos": list(videos.values("id", "title", "state"))})
+    videos = cabinet_videos().filter(owner=request.user).order_by("-created_at")
+    return JsonResponse({"videos": [cabinet_item(video) for video in videos]})
 
 
 @require_GET
