@@ -6,7 +6,6 @@ import uuid
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import OuterRef, Subquery
 from django.http import JsonResponse, UnreadablePostError
 from django.shortcuts import get_object_or_404
 from django.views.decorators.cache import never_cache
@@ -15,7 +14,6 @@ from django.views.decorators.http import require_GET, require_POST, require_http
 from .accounts import error, json_object, require_author
 from .media_probe import InvalidVideo, check_video
 from .models import Job, Outbox, Upload, Video
-from .public_videos import watch_url
 from .storage import (
     CHUNK_SIZE,
     DISK_RESERVE,
@@ -25,6 +23,7 @@ from .storage import (
     part_path,
     sync_directory,
 )
+from .videos import cabinet_item, cabinet_videos
 
 
 class IncompleteBody(ValueError):
@@ -43,19 +42,8 @@ def describe_upload(upload):
 @never_cache
 @require_author
 def videos(request):
-    job_state = Job.objects.filter(video_id=OuterRef("pk"), generation=OuterRef("generation")).values("state")
-    videos = Video.objects.filter(owner=request.user).annotate(job_state=Subquery(job_state)).order_by("-created_at")
-    result = []
-    for video in videos:
-        ready = video.state == Video.State.READY and video.published_generation is not None
-        item = {"id": video.id, "title": video.title, "state": Video.State.READY if ready else (
-            video.job_state if video.job_state in (Job.State.PROCESSING, Job.State.RETRY_WAIT, Job.State.FAILED)
-            else Video.State.QUEUED
-        )}
-        if ready:
-            item["watch_url"] = watch_url(video.id)
-        result.append(item)
-    return JsonResponse({"videos": result})
+    videos = cabinet_videos().filter(owner=request.user).order_by("-created_at")
+    return JsonResponse({"videos": [cabinet_item(video) for video in videos]})
 
 
 @require_GET

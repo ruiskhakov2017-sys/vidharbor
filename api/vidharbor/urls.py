@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import accounts, health, public_videos, uploads
+from . import accounts, health, public_videos, uploads, videos
 
 urlpatterns = [
     path("health/live", health.live, name="live"),
@@ -10,6 +10,7 @@ urlpatterns = [
     path("api/auth/login", accounts.sign_in),
     path("api/auth/logout", accounts.sign_out),
     path("api/videos", uploads.videos),
+    path("api/videos/<uuid:video_id>/rename", videos.rename),
     path("api/catalog", public_videos.catalog),
     path("api/catalog/<uuid:video_id>", public_videos.detail),
     path("watch/<uuid:video_id>", public_videos.watch),

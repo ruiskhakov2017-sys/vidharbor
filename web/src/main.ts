@@ -22,9 +22,15 @@ createApp({
     const status = ref("");
     const progress = ref<number>();
     const pending = ref<string>();
+    const editing = ref<string>();
+    const editedTitle = ref("");
+
+    let videoListRequest = 0;
 
     async function loadVideos() {
-      videos.value = (await api<{ videos: Video[] }>("/api/videos")).videos;
+      const request = ++videoListRequest;
+      const result = await api<{ videos: Video[] }>("/api/videos");
+      if (request === videoListRequest) videos.value = result.videos;
     }
 
     async function run(action: () => Promise<void>) {
@@ -138,10 +144,37 @@ createApp({
       if (!csrf) return;
       return run(async () => {
         session.value = await api<Session>("/api/auth/logout", { csrf });
+        ++videoListRequest;
         videos.value = [];
         status.value = "";
         progress.value = undefined;
         pending.value = undefined;
+        editing.value = undefined;
+        editedTitle.value = "";
+      });
+    }
+
+    function startRename(video: Video) {
+      editing.value = video.id;
+      editedTitle.value = video.title;
+      error.value = "";
+      status.value = "";
+    }
+
+    function submitRename(event: Event) {
+      event.preventDefault();
+      const csrf = session.value?.csrf_token;
+      const id = editing.value;
+      if (!csrf || !id || busy.value) return;
+      return run(async () => {
+        const updated = await api<Video>("/api/videos/" + id + "/rename", {
+          csrf, data: { title: editedTitle.value },
+        });
+        // Earlier polls may still be in flight with the title from before the rename.
+        ++videoListRequest;
+        videos.value = videos.value.map((video) => video.id === id ? updated : video);
+        editing.value = undefined;
+        status.value = "Название сохранено";
       });
     }
 
@@ -200,6 +233,25 @@ createApp({
             video.state === "READY"
               ? h("a", { href: video.watch_url }, "Готово · Смотреть")
               : h("span", video.state === "FAILED" ? "Не удалось обработать" : "Обрабатывается"),
+            editing.value === video.id
+              ? h("form", { onSubmit: submitRename, "aria-label": "Переименование видео" }, [
+                h("label", ["Новое название", h("input", {
+                  name: "title", required: true, maxlength: 200, value: editedTitle.value,
+                  disabled: busy.value,
+                  onInput: (event: Event) => { editedTitle.value = (event.target as HTMLInputElement).value; },
+                })]),
+                h("div", { class: "actions" }, [
+                  h("button", { type: "submit", disabled: busy.value }, "Сохранить"),
+                  h("button", {
+                    type: "button", class: "secondary", disabled: busy.value,
+                    onClick: () => { editing.value = undefined; error.value = ""; },
+                  }, "Отмена"),
+                ]),
+              ])
+              : h("button", {
+                type: "button", class: "secondary", disabled: busy.value,
+                onClick: () => startRename(video),
+              }, "Переименовать"),
           ])))
           : h("p", "Здесь появятся загруженные видео."),
       ]);

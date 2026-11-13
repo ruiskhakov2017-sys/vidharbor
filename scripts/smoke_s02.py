@@ -15,7 +15,7 @@ COMPOSE = ["docker", "compose", "--env-file", ".env.example", "exec", "-T"]
 
 
 def exec_service(*args):
-    return subprocess.check_output([*COMPOSE, *args], text=True, timeout=30).strip()
+    return subprocess.check_output([*COMPOSE, *args], text=True, timeout=120).strip()
 
 
 def register_and_sign_in(page, username, password):

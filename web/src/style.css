@@ -94,6 +94,10 @@ button:disabled {
   padding: .6rem 0;
 }
 
+.videos form {
+  width: 100%;
+}
+
 [role="alert"] {
   color: #9e2424;
 }
