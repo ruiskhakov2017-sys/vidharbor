@@ -1,0 +1,68 @@
+name: Django tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: django-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  django-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      COMPOSE_PROJECT_NAME: vidharbor-django-ci
+      VIDHARBOR_SECRETS_DIR: /tmp/vidharbor-django-secrets
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Prepare test credentials
+        run: |
+          umask 077
+          mkdir -p "$VIDHARBOR_SECRETS_DIR"
+          for name in django_secret_key postgres_password rabbitmq_password; do
+            openssl rand -hex 32 > "$VIDHARBOR_SECRETS_DIR/$name"
+            chmod 0444 "$VIDHARBOR_SECRETS_DIR/$name"
+          done
+
+      - name: Validate Compose and build test image
+        run: |
+          docker compose --env-file .env.example config --quiet
+          docker compose --env-file .env.example build upload
+
+      - name: Start PostgreSQL
+        run: docker compose --env-file .env.example up -d --wait --wait-timeout 120 db
+
+      - name: Check migrations
+        run: |
+          docker compose --env-file .env.example run --rm --no-deps upload \
+            python manage.py makemigrations --check --dry-run
+
+      - name: Run all Django tests
+        run: |
+          docker compose --env-file .env.example run --rm --no-deps upload \
+            python manage.py test vidharbor --noinput
+
+      - name: Show PostgreSQL logs on failure
+        if: failure()
+        run: docker compose --env-file .env.example logs --no-color --tail 80 db
+
+      - name: Remove test containers, volumes and credentials
+        if: always()
+        run: |
+          cleanup_status=0
+          if [ -f compose.yaml ]; then
+            docker compose --env-file .env.example down --volumes --remove-orphans || cleanup_status=$?
+          fi
+          rm -rf -- "$VIDHARBOR_SECRETS_DIR"
+          exit "$cleanup_status"
