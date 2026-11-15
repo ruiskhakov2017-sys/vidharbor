@@ -53,6 +53,14 @@ jobs:
           docker compose --env-file .env.example run --rm --no-deps upload \
             python manage.py test vidharbor --noinput
 
+      - name: Check supervisor lock release
+        run: |
+          install -m 0644 "$GITHUB_WORKSPACE/scripts/smoke_s04_supervisor.py" "$RUNNER_TEMP/smoke_s04_supervisor.py"
+          docker compose --env-file .env.example run --rm --no-deps \
+            -e PYTHONPATH=/app \
+            -v "$RUNNER_TEMP/smoke_s04_supervisor.py:/review/smoke_s04_supervisor.py:ro" \
+            upload python /review/smoke_s04_supervisor.py
+
       - name: Show PostgreSQL logs on failure
         if: failure()
         run: docker compose --env-file .env.example logs --no-color --tail 80 db
