@@ -82,6 +82,10 @@ class Command(BaseCommand):
     help = "Publish due video commands from PostgreSQL to RabbitMQ."
 
     def handle(self, *args, **options):
+        from django.conf import settings
+        from django.core.management.base import CommandError
+        if settings.RESTORE_MODE:
+            raise CommandError("Restore mode: relay is paused")
         connection = None
         while True:
             try:

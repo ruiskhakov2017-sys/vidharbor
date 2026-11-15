@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from vidharbor.models import Job, Upload
 from vidharbor.storage import media_lock, original_path, part_path
+from vidharbor.deletion import clean_pending
 
 
 STALE_STATES = [Upload.State.UPLOADING, Upload.State.VERIFYING, Upload.State.INTERRUPTED]
@@ -38,9 +39,17 @@ class Command(BaseCommand):
         parser.add_argument("--watch", action="store_true")
 
     def handle(self, *args, **options):
+        from django.conf import settings
+        from django.core.management.base import CommandError
+        if settings.RESTORE_MODE:
+            raise CommandError("Restore mode: cleanup is paused")
+        expires_at = 0
         while True:
             close_old_connections()
-            self.stdout.write(f"Expired uploads: {expire_uploads()}")
+            clean_pending()
+            if time.monotonic() >= expires_at:
+                self.stdout.write(f"Expired uploads: {expire_uploads()}")
+                expires_at = time.monotonic() + 300
             if not options["watch"]:
                 return
-            time.sleep(300)
+            time.sleep(2)

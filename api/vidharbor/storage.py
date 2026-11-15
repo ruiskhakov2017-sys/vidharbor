@@ -1,6 +1,7 @@
 import fcntl
 import hashlib
 import os
+import time
 from contextlib import contextmanager
 
 from django.conf import settings
@@ -19,15 +20,22 @@ def original_path(upload_id):
 
 
 @contextmanager
-def media_lock(name):
+def media_lock(name, *, timeout=0):
     path = settings.MEDIA_ROOT / "locks" / str(name)
     with path.open("ab") as handle:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            yield False
-        else:
-            yield True
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    yield False
+                    return
+                time.sleep(min(0.05, remaining))
+            else:
+                yield True
+                return
 
 
 def file_digest(path):

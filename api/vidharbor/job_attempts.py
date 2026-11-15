@@ -4,7 +4,7 @@ from datetime import timedelta
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Attempt, Job, Outbox
+from .models import Attempt, Job, Outbox, Video
 
 
 MAX_ATTEMPTS = 3
@@ -52,10 +52,14 @@ def queue_terminal(job, attempt, reason):
 
 @transaction.atomic
 def begin_attempt(job_id, generation, number, payload, *, cancelled=None):
+    video_id = Job.objects.values_list("video_id", flat=True).get(pk=job_id)
+    video = Video.objects.select_for_update().get(pk=video_id)
     job = Job.objects.select_for_update().select_related("video").get(pk=job_id)
+    if video.state != Video.State.QUEUED:
+        return None
     if generation != job.generation or generation != job.video.generation:
         return None
-    if job.state in (Job.State.SUCCEEDED, Job.State.FAILED):
+    if job.state in (Job.State.SUCCEEDED, Job.State.FAILED, Job.State.CANCELLED):
         return None
     previous = job.attempts.order_by("-number").first()
     if cancelled is not None and cancelled.is_set():
@@ -82,6 +86,7 @@ def begin_attempt(job_id, generation, number, payload, *, cancelled=None):
 @transaction.atomic
 def finish_attempt(attempt_id, outcome, payload, reason="", *, publish=None):
     attempt = Attempt.objects.select_related("job").get(pk=attempt_id)
+    Video.objects.select_for_update().get(pk=attempt.job.video_id)
     job = Job.objects.select_for_update().get(pk=attempt.job_id)
     attempt.refresh_from_db()
     if attempt.state != Attempt.State.RUNNING:

@@ -27,6 +27,7 @@ INSTALLED_APPS = [
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "vidharbor.safety.SafetyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -67,6 +68,8 @@ RABBITMQ_USER = os.environ["RABBITMQ_USER"]
 RABBITMQ_PASSWORD = read_secret("rabbitmq_password")
 
 MEDIA_ROOT = Path("/var/lib/vidharbor")
+JOURNAL_ROOT = Path(os.getenv("JOURNAL_ROOT", "/var/lib/vidharbor-journal"))
+RESTORE_MODE = os.getenv("RESTORE_MODE", "0") == "1"
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://127.0.0.1:8085").rstrip("/")
 FFMPEG_TIMEOUT = int(os.getenv("FFMPEG_TIMEOUT", "10800"))
 if not 1 <= FFMPEG_TIMEOUT <= 10800:

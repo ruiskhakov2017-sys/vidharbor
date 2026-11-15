@@ -7,7 +7,7 @@ import tempfile
 import time
 from fractions import Fraction
 
-from .media_probe import InvalidVideo, probe_video
+from .media_probe import InvalidVideo, ProbeTimeout, probe_video
 
 
 logger = logging.getLogger(__name__)
@@ -131,6 +131,8 @@ def encode(source, directory, lock_fd, cancelled, *, timeout):
     try:
         video, audio = select_streams(probe_video(source))
         sizes = rendition_sizes(video)
+    except ProbeTimeout:
+        return "retry", "probe_timeout"
     except InvalidVideo:
         return "failed", "invalid_video"
 

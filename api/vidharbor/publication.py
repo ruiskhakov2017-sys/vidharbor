@@ -144,6 +144,9 @@ def verify_manifest(directory, job, attempt_id):
 def publish_video(job, *, recovered=False):
     # Called by finish_attempt within the transaction that also completes the job.
     video = Video.objects.select_for_update().get(pk=job.video_id)
+    from .journal import is_deleted
+    if is_deleted(video.id):
+        return False
     if video.generation != job.generation or video.state != Video.State.QUEUED:
         return False
     destination = ready_path(video.id, job.generation)
@@ -222,6 +225,8 @@ def transcode(job, attempt_id, lock_fd, *, cancelled):
 
 
 def process_delivery(job, payload, lock_fd, cancelled):
+    from .deletion import Revocation
+    cancelled = Revocation(cancelled, job.video_id, payload["generation"])
     if cancelled.is_set():
         return
     job.refresh_from_db()
