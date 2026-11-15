@@ -16,4 +16,3 @@ class SafetyMiddleware:
     def process_exception(self, request, exception):
         if isinstance(exception, JournalUnavailable):
             return JsonResponse({"error": "Журнал недоступен; доступ закрыт."}, status=503)
-
