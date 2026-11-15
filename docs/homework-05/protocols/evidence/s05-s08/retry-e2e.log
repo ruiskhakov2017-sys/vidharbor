@@ -1,0 +1,37 @@
+ Container vidharbor-t5012-completion-worker-1  Stopping
+ Container vidharbor-t5012-completion-relay-1  Stopping
+ Container vidharbor-t5012-completion-relay-1  Stopped
+ Container vidharbor-t5012-completion-worker-1  Stopped
+ Container vidharbor-t5012-completion-rabbitmq-1  Starting
+ Container vidharbor-t5012-completion-rabbitmq-1  Started
+ Container vidharbor-t5012-completion-relay-1  Starting
+ Container vidharbor-t5012-completion-worker-1  Starting
+ Container vidharbor-t5012-completion-relay-1  Started
+ Container vidharbor-t5012-completion-worker-1  Started
+Real FFmpeg deadline -> FAILED generation 1: video=f4615d1a-2b63-4211-8aff-ccbf830d3b92, job=3445cb13-857a-486f-8e3e-fe3cad9b00f2
+ Container vidharbor-t5012-completion-worker-1  Stopping
+ Container vidharbor-t5012-completion-relay-1  Stopping
+ Container vidharbor-t5012-completion-worker-1  Stopped
+ Container vidharbor-t5012-completion-rabbitmq-1  Stopping
+ Container vidharbor-t5012-completion-rabbitmq-1  Stopped
+ Container vidharbor-t5012-completion-relay-1  Stopped
+ Container vidharbor-t5012-completion-upload-1  Restarting
+ Container vidharbor-t5012-completion-upload-1  Started
+Upload public route recovered after restart in 0.549s without nginx reload.
+ Container vidharbor-t5012-completion-rabbitmq-1  Starting
+ Container vidharbor-t5012-completion-rabbitmq-1  Started
+ Container vidharbor-t5012-completion-relay-1  Starting
+ Container vidharbor-t5012-completion-worker-1  Starting
+ Container vidharbor-t5012-completion-worker-1  Started
+ Container vidharbor-t5012-completion-relay-1  Started
+Lost reply + 4 replays + upload restart + broker outage: same generation 2 job=9315f541-1bcd-4b9d-8e56-cf72c12aa0c9, message=284f0389-ef31-4c52-9fb9-8f0ccad7ebb6
+Late UI retry after successor FAILED returned that same failed job; no generation 3 created.
+ Container vidharbor-t5012-completion-worker-1  Stopping
+ Container vidharbor-t5012-completion-worker-1  Stopped
+ Container vidharbor-t5012-completion-worker-1  Recreate
+ Container vidharbor-t5012-completion-worker-1  Recreated
+ Container vidharbor-t5012-completion-worker-1  Starting
+ Container vidharbor-t5012-completion-worker-1  Started
+4 concurrent real HTTP creation requests: one 201, three 200, one generation 3 job.
+Fixed deadline -> READY g3, unchanged watch/master/upload/hash/inode/mtime; 15 HTTP segments; Auto and all 3 qualities played.
+{"video_id": "f4615d1a-2b63-4211-8aff-ccbf830d3b92", "jobs": [{"id": "3445cb13-857a-486f-8e3e-fe3cad9b00f2", "video_id": "f4615d1a-2b63-4211-8aff-ccbf830d3b92", "generation": 1, "state": "FAILED", "retry_of_id": null}, {"id": "9315f541-1bcd-4b9d-8e56-cf72c12aa0c9", "video_id": "f4615d1a-2b63-4211-8aff-ccbf830d3b92", "generation": 2, "state": "FAILED", "retry_of_id": "3445cb13-857a-486f-8e3e-fe3cad9b00f2"}, {"id": "470e4f66-aa65-464e-85f8-3c2aeb3332ba", "video_id": "f4615d1a-2b63-4211-8aff-ccbf830d3b92", "generation": 3, "state": "SUCCEEDED", "retry_of_id": "9315f541-1bcd-4b9d-8e56-cf72c12aa0c9"}], "original_sha256": "340d555f4b4466940c180691788b4f9a980db375fef2434b8f3d1ad2a468f003"}

@@ -1,3 +1,4 @@
+import hashlib
 import tempfile
 import uuid
 from pathlib import Path
@@ -9,7 +10,7 @@ from django.utils import timezone
 
 from . import journal
 from .management.commands.recovery import reconcile
-from .models import Attempt, Job, Outbox, SheetAllocator, Upload, Video
+from .models import Attempt, Job, Outbox, ReadyEvent, SheetAllocator, Upload, Video
 
 
 class RecoveryTests(TransactionTestCase):
@@ -45,4 +46,23 @@ class RecoveryTests(TransactionTestCase):
     def test_unapplied_deletion_authority_prevents_reconciliation(self):
         journal.append("delete", self.video.pk, {"video_id": str(self.video.pk), "upload_id": str(self.video.upload_id)})
         with self.settings(RESTORE_MODE=True), self.assertRaisesRegex(CommandError, "Apply deletion authority"):
+            reconcile(apply=True)
+
+    def test_snapshot_conflict_rolls_back_scoped_redelivery(self):
+        source = Outbox.objects.create(job=self.job, kind="video.ready", attempt_no=0, payload={"title": "Original"})
+        ReadyEvent.objects.create(event_id=source.pk, source=source, video=self.video, generation=1,
+                                  sheet_row=2, payload={"title": "Changed", "sheet_row": 2})
+        journal.append("sheet", source.pk, {"row": 2,
+            "snapshot_sha256": hashlib.sha256(journal.canonical(source.payload)).hexdigest()})
+        with self.settings(RESTORE_MODE=True), self.assertRaisesRegex(CommandError, "snapshot conflicts"):
+            reconcile(apply=True)
+        self.message.refresh_from_db()
+        self.assertIsNotNone(self.message.sent_at)
+
+    def test_current_database_cannot_disagree_with_independent_snapshot_hash(self):
+        source = Outbox.objects.create(job=self.job, kind="video.ready", attempt_no=0, payload={"title": "Changed together"})
+        ReadyEvent.objects.create(event_id=source.pk, source=source, video=self.video, generation=1,
+                                  sheet_row=2, payload={**source.payload, "sheet_row": 2})
+        journal.append("sheet", source.pk, {"row": 2, "snapshot_sha256": "0" * 64})
+        with self.settings(RESTORE_MODE=True), self.assertRaisesRegex(CommandError, "snapshot conflicts"):
             reconcile(apply=True)

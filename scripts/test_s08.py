@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from s08 import valid_tar, restore
+from s08 import valid_tar, restore, assert_fenced_records
 
 
 class RestoreSafetyTests(unittest.TestCase):
@@ -29,6 +29,25 @@ class RestoreSafetyTests(unittest.TestCase):
         target = SimpleNamespace(project="vidharbor-target")
         with self.assertRaisesRegex(RuntimeError, "Fence source"):
             restore(source, target, None, None, None)
+
+    def test_stopped_source_with_restart_policy_is_not_fenced(self):
+        record = {"Config": {"Labels": {"com.docker.compose.project": "vidharbor-source",
+                  "com.docker.compose.service": "worker"}}, "State": {"Running": False},
+                  "HostConfig": {"RestartPolicy": {"Name": "on-failure"}}}
+        for service in ("worker", "migrate"):
+            record["Config"]["Labels"]["com.docker.compose.service"] = service
+            with self.subTest(service=service), self.assertRaisesRegex(RuntimeError, "automatically restart"):
+                assert_fenced_records([record], "vidharbor-source")
+        record["HostConfig"]["RestartPolicy"]["Name"] = "no"
+        assert_fenced_records([record], "vidharbor-source")
+        record["State"]["Running"] = True
+        with self.assertRaisesRegex(RuntimeError, "running"):
+            assert_fenced_records([record], "vidharbor-source")
+
+    def test_fence_rejects_foreign_container(self):
+        record = {"Config": {"Labels": {"com.docker.compose.project": "vidharbor-other"}}}
+        with self.assertRaisesRegex(RuntimeError, "different source project"):
+            assert_fenced_records([record], "vidharbor-source")
 
 
 if __name__ == "__main__":

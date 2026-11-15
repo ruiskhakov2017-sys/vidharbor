@@ -1,0 +1,1 @@
+{"upgrade": "0003 -> 0006", "preserved": ["Upload", "Video", "Job", "Attempt", "Outbox"], "nullable_existing_jobs": true, "unique_successor": true}

@@ -1,0 +1,2 @@
+S05 rename: save, reload, cancel, error retry, HTML escaping, owner isolation and CSRF passed.
+QUEUED fixture only; catalogue, search, playback and deletion require S04.

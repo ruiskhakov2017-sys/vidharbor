@@ -1,0 +1,63 @@
+{
+  "backup_id": "acceptance-final",
+  "target_project": "vidharbor-restore-completion",
+  "verified": {
+    "verified_files": 98,
+    "verified_records": {
+      "Upload": 5,
+      "Video": 5,
+      "Job": 5,
+      "Attempt": 4,
+      "Outbox": 8,
+      "ReadyEvent": 2,
+      "Delivery": 2,
+      "ReceiverRow": 2,
+      "SheetAllocator": 1
+    }
+  },
+  "deletions": {
+    "journal_head": {
+      "sequence": 5,
+      "digest": "72789d290b6e7f3e25c5efa77a529d11d85553603b7b199428a9dabd42c0e7c9"
+    }
+  },
+  "reconcile_dry_run": {
+    "actions": [
+      {
+        "job_id": "0f28b15d-63cf-4728-8651-820361b4118c",
+        "message_id": "b538dc0d-4258-4283-bca0-7ececa179f0b",
+        "action": "redeliver_same_command",
+        "attempts_preserved": 0
+      }
+    ],
+    "journal_head": {
+      "sequence": 5,
+      "digest": "72789d290b6e7f3e25c5efa77a529d11d85553603b7b199428a9dabd42c0e7c9"
+    },
+    "allocator_floor": 4,
+    "applied": false,
+    "external_sheets": "Not Run; notifier stays disabled"
+  },
+  "reconcile_applied": {
+    "actions": [
+      {
+        "job_id": "0f28b15d-63cf-4728-8651-820361b4118c",
+        "message_id": "b538dc0d-4258-4283-bca0-7ececa179f0b",
+        "action": "redeliver_same_command",
+        "attempts_preserved": 0
+      }
+    ],
+    "journal_head": {
+      "sequence": 5,
+      "digest": "72789d290b6e7f3e25c5efa77a529d11d85553603b7b199428a9dabd42c0e7c9"
+    },
+    "allocator_floor": 4,
+    "applied": true,
+    "external_sheets": "Not Run; notifier stays disabled"
+  },
+  "restore_seconds": 106.14710555200054,
+  "http_open": true,
+  "notifier_open": false,
+  "external_sheets": "Not Run",
+  "open_seconds": 23.709716710000066
+}

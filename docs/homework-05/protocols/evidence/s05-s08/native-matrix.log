@@ -1,0 +1,8 @@
+Chrome upload and cabinet READY; fixture jobs: {"landscape.mp4": {"video_id": "2a57869c-c2fb-462c-8f7d-2f5ee9dd7cd9", "job_id": "7bc4956c-b4e4-4f7d-93e2-27fe49c1180d", "message_id": "83734644-d95a-42d8-8a72-b0938349ff11"}, "rotated.mov": {"video_id": "21a1165c-5b24-4604-ac81-dfe1745e18e4", "job_id": "893df93b-690b-461f-a5f4-5266e848a4d4", "message_id": "b08650ee-6f91-46d1-92d1-f19212cf49a8"}, "small.webm": {"video_id": "b926bcc9-b450-45d0-959e-4d6361a1a342", "job_id": "3318e1dd-7e31-4069-b0fa-d016bc9d4987", "message_id": "ebb62e63-55a7-4c11-ac76-3a2c1d142b38"}, "sample.mkv": {"video_id": "b6869865-5162-4570-b6ad-71913358b460", "job_id": "50558298-a7c7-4750-9056-2cd3747b8297", "message_id": "3e61fb51-998d-4391-b1c7-a4edd98e9cb0"}}
+landscape.mp4: HTTP playlists and all segments; decoded [(640, 360), (852, 480), (1280, 720)]; audio=True
+rotated.mov: HTTP playlists and all segments; decoded [(360, 640), (480, 852), (720, 1280)]; audio=False
+small.webm: HTTP playlists and all segments; decoded [(320, 180)]; audio=False
+sample.mkv: HTTP playlists and all segments; decoded [(640, 360), (852, 480), (1280, 720)]; audio=True
+Chrome 157.0.8103.78: guest search and direct link, Auto and every level for 3 clips
+Edge 157.0.4341.60: guest search and direct link, Auto and every level for 3 clips
+Firefox 159.0: guest search and direct link, Auto and every level for 3 clips

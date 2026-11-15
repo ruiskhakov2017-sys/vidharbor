@@ -1,0 +1,15 @@
+Clean start: live=200, ready=200 {'postgres': True, 'rabbitmq': True}
+Chrome 156.0.8078.79: HTTP 200 and visible Vue auth-screen
+Chrome rendered the Vue sign-in screen.
+ Container vidharbor-t5012-completion-rabbitmq-1  Stopping
+ Container vidharbor-t5012-completion-rabbitmq-1  Stopped
+rabbitmq stopped: live=200, ready=503 {'postgres': True, 'rabbitmq': False}
+ Container vidharbor-t5012-completion-rabbitmq-1  Starting
+ Container vidharbor-t5012-completion-rabbitmq-1  Started
+rabbitmq restarted: live=200, ready=200 {'postgres': True, 'rabbitmq': True}
+ Container vidharbor-t5012-completion-db-1  Stopping
+ Container vidharbor-t5012-completion-db-1  Stopped
+db stopped: live=200, ready=503 {'postgres': False, 'rabbitmq': True}
+ Container vidharbor-t5012-completion-db-1  Starting
+ Container vidharbor-t5012-completion-db-1  Started
+db restarted: live=200, ready=200 {'postgres': True, 'rabbitmq': True}

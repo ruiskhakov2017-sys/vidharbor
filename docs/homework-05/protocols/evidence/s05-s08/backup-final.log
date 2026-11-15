@@ -1,0 +1,10 @@
+{"project": "vidharbor-completion", "step": "config"}
+{"project": "vidharbor-completion", "step": "running"}
+{"project": "vidharbor-completion", "step": "quiesce"}
+{"project": "vidharbor-completion", "step": "running"}
+{"project": "vidharbor-completion", "step": "running"}
+{"project": "vidharbor-completion", "step": "recovery-describe"}
+{"project": "vidharbor-completion", "step": "pg-dump"}
+{"project": "vidharbor-completion", "step": "broker-stop"}
+{"project": "vidharbor-completion", "step": "resume"}
+{"backup_id": "acceptance-final", "source_project": "vidharbor-completion", "boundary_utc": "2026-11-15T14:13:36.416040+00:00", "complete": true, "source_resumed": true, "scope": "isolated same-host drill; independent carrier/retention/RPO/RTO targets not approved", "journal_head": {"sequence": 4, "digest": "93ca5f24e54e085e150302907717358f1c0f44050c2b486b0f5e3078ca39380d"}, "hashes": {"rabbitmq.tar": "a7753a28ed5b4cd1ffd21327799e1d100134a31e3243b3c33870ba6585f46bfc", "postgres.dump": "42d0e513a1b55623c2e7bdaa46659bfa4e67c915036780f32f12e3e911120c17", "media.tar": "93887845f53bfe1c434c47947741fd59d4cfa4898b8a4a66a937608c8a0bbeeb", "snapshot.json": "791e665b567599e8caee98dfac7a28a067e4f5ac6bbccfebfba5b4bcb560a907"}, "postgres_image": "postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777", "rabbitmq_image": "rabbitmq:4.2-alpine@sha256:dea0f5843025e0c3c1a128b14fc2e181ea59ff369e7048e6a7fbac83bd8c4f9d", "source_head": "167b18646b576b1b0c74a444e1d99136baf6f93a", "pause_seconds": 79.19300763499996}

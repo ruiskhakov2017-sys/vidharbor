@@ -1,0 +1,23 @@
+{
+  "status": "PASS",
+  "first_delete": {
+    "id": "e472a90e-62ad-4162-82fd-7fb35f1b55ea",
+    "state": "DELETING"
+  },
+  "after_worker_cancel_before_cleanup_restart": {
+    "state": "DELETING",
+    "generation": 2,
+    "original_exists": true,
+    "ready_events": 0,
+    "job_state": "CANCELLED"
+  },
+  "final": {
+    "state": "DELETED",
+    "generation": 2,
+    "original_exists": false,
+    "processing_exists": false,
+    "ready_exists": false,
+    "deletion_entries": 1
+  },
+  "video_id": "e472a90e-62ad-4162-82fd-7fb35f1b55ea"
+}

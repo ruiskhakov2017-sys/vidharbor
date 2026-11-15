@@ -1,19 +1,21 @@
 import tempfile
 import threading
+import queue
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.db import connections
+from django.db import connection, connections
 from django.test import Client, TransactionTestCase
 
 from . import journal
 from .deletion import revoke, clean, clean_pending, apply_journal
 from .job_attempts import begin_attempt, finish_attempt
-from .models import Attempt, Job, Upload, Video
-from .publication import publish_video
-from .storage import media_lock, original_path
+from .models import Attempt, Job, Outbox, Upload, Video
+from .publication import publish_video, ready_path, staging_path
+from .storage import media_lock, original_path, sync_directory
 
 
 class DeletionTests(TransactionTestCase):
@@ -103,3 +105,79 @@ class DeletionTests(TransactionTestCase):
             list(pool.map(lambda _: delete(), range(2)))
         self.assertEqual(len(journal.read_entries()[0]), 1)
         self.video.refresh_from_db(); self.assertEqual(self.video.generation, 2)
+
+    def publication_boundary(self, crash):
+        """Real rename + PostgreSQL lock wait, with either commit or rollback."""
+        Video.objects.filter(pk=self.video.pk).update(state="QUEUED", published_generation=None)
+        staging = staging_path(self.video.id)
+        staging.mkdir(parents=True)
+        (staging / "publication-boundary-fixture").write_bytes(b"encoded test output")
+        renamed, release = threading.Event(), threading.Event()
+        backend_pid = queue.Queue()
+
+        def pause_after_rename(folder):
+            if not renamed.is_set():
+                renamed.set()
+                if not release.wait(10):
+                    raise RuntimeError("publication barrier timed out")
+                if crash:
+                    raise RuntimeError("injected crash after rename")
+            sync_directory(folder)
+
+        def publish():
+            try:
+                with media_lock(self.video.id) as acquired:
+                    assert acquired
+                    finish_attempt(self.attempt.pk, "success", {}, publish=publish_video)
+            finally:
+                connections.close_all()
+
+        def delete():
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_backend_pid()")
+                    backend_pid.put(cursor.fetchone()[0])
+                return revoke(self.video.id)
+            finally:
+                connections.close_all()
+
+        with patch("vidharbor.publication.sync_directory", side_effect=pause_after_rename), ThreadPoolExecutor(max_workers=2) as pool:
+            publishing = pool.submit(publish)
+            try:
+                self.assertTrue(renamed.wait(5))
+                self.assertTrue(ready_path(self.video.id, 1).is_dir())
+                self.assertEqual(self.client.get(f"/media/{self.video.id}/master.m3u8").status_code, 404)
+                deleting = pool.submit(delete)
+                pid = backend_pid.get(timeout=5)
+                deadline = time.monotonic() + 5
+                while True:
+                    with connection.cursor() as cursor:
+                        cursor.execute("SELECT wait_event_type FROM pg_stat_activity WHERE pid=%s", [pid])
+                        waiting = cursor.fetchone()
+                    if waiting == ("Lock",):
+                        break
+                    self.assertLess(time.monotonic(), deadline, "delete did not wait on publication's row lock")
+                    time.sleep(.02)
+            finally:
+                release.set()
+            if crash:
+                with self.assertRaisesRegex(RuntimeError, "injected crash after rename"):
+                    publishing.result(timeout=5)
+            else:
+                publishing.result(timeout=5)
+            deleting.result(timeout=5)
+        self.video.refresh_from_db()
+        self.assertEqual((self.video.state, self.video.generation, self.video.published_generation), ("DELETING", 2, None))
+        self.assertEqual(Outbox.objects.filter(job=self.job, kind="video.ready").count(), 0 if crash else 1)
+        self.assertEqual(self.client.get(f"/watch/{self.video.id}").status_code, 404)
+        self.assertTrue(clean(self.video.id))
+        self.assertFalse(ready_path(self.video.id, 1).parent.exists())
+        self.assertFalse(original_path(self.video.upload_id).exists())
+        from .notifications import attach_existing_ready
+        self.assertEqual(attach_existing_ready(), 0)
+
+    def test_delete_between_rename_and_commit_serializes_with_publication(self):
+        self.publication_boundary(crash=False)
+
+    def test_delete_after_rename_before_rollback_cleans_uncommitted_files(self):
+        self.publication_boundary(crash=True)

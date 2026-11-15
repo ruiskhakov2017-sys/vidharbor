@@ -1,0 +1,6 @@
+Chrome 156.0.8078.79
+first.mp4: bytes=193109, sha256=95f404fb4d1cc0bf6526cd09ba55d2139820636d010193be37daf2c7f2ad5a65, jobs=1, outbox=1
+second.mp4: bytes=231432, sha256=5acc4568ed15816a52d47c2a93995cc3e01bf84750cfdb93c8afa432801b054f, jobs=1, outbox=1
+RabbitMQ: original IDs and full payloads verified, persistent messages requeued: ['7d7528e4-cd16-4db9-be42-1ca852dfcaaf', 'b350e9c6-1706-46ee-bd3d-abe9de40f287']
+Browser progress: author A [0, 16, 25, 33, 42, 59, 67, 76, 84, 93, 100]; author B [0, 14, 21, 28, 35, 49, 56, 63, 70, 77, 92, 99, 100]
+Two sessions, owner checks, CSRF, abort and new upload, lost reply and identical IDs on retry: passed

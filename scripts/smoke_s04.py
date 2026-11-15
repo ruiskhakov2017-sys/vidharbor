@@ -22,6 +22,15 @@ FIXTURES = {
 }
 
 
+def launch_browser(playwright, name):
+    """Allow explicit cloud browser binaries without replacing browser engines."""
+    if name == "Firefox":
+        return playwright.firefox.launch()
+    executable = os.getenv("VIDHARBOR_" + name.upper())
+    return (playwright.chromium.launch(executable_path=executable, args=["--no-sandbox"])
+            if executable else playwright.chromium.launch(channel={"Chrome": "chrome", "Edge": "msedge"}[name]))
+
+
 def require(response, expected=200):
     assert response.status == expected, (response.status, response.url, response.text()[:800])
     return response
@@ -55,7 +64,7 @@ def upload_http(request, path, title):
 
 
 def upload_and_wait(playwright, folder):
-    browser = playwright.chromium.launch(channel="chrome")
+    browser = launch_browser(playwright, "Chrome")
     try:
         suffix = uuid.uuid4().hex[:8]
         page = browser.new_page()
@@ -133,12 +142,20 @@ def verify_playback(page, detail, sizes):
     expect(quality.locator("option")).to_have_count(len(sizes) + 1, timeout=45000)
     expect(quality).to_have_value("-1")
     video = page.locator("video")
-    video.evaluate("(video) => { video.muted = true; return video.play(); }")
+    video.evaluate("""(video) => {
+        video.muted = true;
+        return Promise.race([video.play(), new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('play() did not resolve within 45 seconds')), 45000))]);
+    }""")
     page.wait_for_function("document.querySelector('video').currentTime > 0.3", timeout=45000)
 
     for index, dimensions in enumerate(sizes):
         quality.select_option(str(index))
-        video.evaluate("(video) => { video.currentTime = 0; return video.play(); }")
+        video.evaluate("""(video) => {
+            video.currentTime = 0;
+            return Promise.race([video.play(), new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('play() did not resolve within 45 seconds')), 45000))]);
+        }""")
         page.wait_for_function(
             """([width, height]) => {
                 const video = document.querySelector("video");
@@ -179,12 +196,8 @@ def main():
         finally:
             guest.dispose()
 
-        for name, engine, channel in (
-            ("Chrome", playwright.chromium, "chrome"),
-            ("Edge", playwright.chromium, "msedge"),
-            ("Firefox", playwright.firefox, None),
-        ):
-            browser = engine.launch(channel=channel) if channel else engine.launch()
+        for name in ("Chrome", "Edge", "Firefox"):
+            browser = launch_browser(playwright, name)
             try:
                 page = browser.new_page()
                 page.goto(BASE + "/catalog", wait_until="domcontentloaded")

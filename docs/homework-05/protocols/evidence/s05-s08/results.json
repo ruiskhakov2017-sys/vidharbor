@@ -1,0 +1,86 @@
+{
+  "ci-local": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "native-matrix": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "restore-functional": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "final-reconcile": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "durable-fence": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "s01-regression": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "s02-regression": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "retry-e2e": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "rename-regression": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "s04-faults-regression": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "process-regression": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "deletion-e2e": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "notifications-e2e": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "backup-final": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "restore": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "restore-open": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "upgrade": {
+    "exit_code": 0,
+    "status": "PASS"
+  },
+  "github_actions_current_branch": {
+    "status": "Not Run",
+    "reason": "push/PR not authorized"
+  },
+  "real_n8n_sheets": {
+    "status": "Not Run",
+    "reason": "use test receiver until dedicated access/public HLS agreed"
+  },
+  "s07": {
+    "status": "Not Run",
+    "reason": "waiting for original agreed plan 2d65cb9 per owner instruction"
+  },
+  "final-guards": {
+    "exit_code": 0,
+    "status": "PASS"
+  }
+}

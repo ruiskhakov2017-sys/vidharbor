@@ -1,0 +1,25 @@
+{
+  "path": "/workspace/.vidharbor-cloud/completion/fixtures/large.mkv",
+  "bytes": 3529596888,
+  "sha256": "0c2159c564f894b4046bd9779831a18ced2327acdaf5569003ec6456da905307",
+  "generation_and_hash_seconds": 16.878819337000095,
+  "origin": "20 repetitions of 2-second 3840x2160 10fps synthetic random FFV1 + PCM; real media packets, no padding or sparse allocation",
+  "probe": {
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "codec_name": "ffv1",
+        "width": 3840,
+        "height": 2160
+      },
+      {
+        "codec_name": "pcm_s16le"
+      }
+    ],
+    "format": {
+      "duration": "40.000000",
+      "size": "3529596888"
+    }
+  }
+}

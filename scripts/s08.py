@@ -19,7 +19,7 @@ from urllib.error import HTTPError
 from urllib.request import urlopen
 
 REPO = Path(__file__).resolve().parents[1]
-WRITERS = {"web", "api", "upload", "worker", "relay", "notifier", "cleanup"}
+WRITERS = {"web", "api", "upload", "worker", "relay", "notifier", "cleanup", "migrate"}
 
 
 def digest(path):
@@ -42,6 +42,16 @@ def valid_tar(path):
             parts = Path(member.name).parts
             if Path(member.name).is_absolute() or ".." in parts or not (member.isdir() or member.isfile()):
                 raise RuntimeError("Unsafe archive member")
+
+
+def assert_fenced_records(records, project):
+    for item in records:
+        labels = item["Config"]["Labels"]
+        if labels.get("com.docker.compose.project") != project:
+            raise RuntimeError("Container belongs to a different source project")
+        if labels.get("com.docker.compose.service") in WRITERS:
+            if item["State"]["Running"] or item["HostConfig"]["RestartPolicy"]["Name"] not in ("", "no"):
+                raise RuntimeError("Source writer is running or can automatically restart")
 
 
 class Stand:
@@ -86,13 +96,43 @@ class Stand:
         raw = self.run(["ps", "--format", "json"], label="running").decode().strip()
         if not raw: return set()
         values = json.loads(raw) if raw.startswith("[") else [json.loads(line) for line in raw.splitlines()]
-        return {value["Service"] for value in values if value["State"] == "running"}
+        return {value["Service"] for value in values if value["State"] in ("running", "restarting")}
 
     def quiesce(self):
         active = sorted(self.running() & WRITERS)
         if active: self.run(["stop", "--timeout", "30", *active], label="quiesce")
         if self.running() & WRITERS: raise RuntimeError("A source writer remains alive")
         return active
+
+    def containers(self):
+        ids = self.run(["ps", "--all", "--quiet"], label="container-ids").decode().split()
+        if not ids:
+            return []
+        return json.loads(subprocess.check_output(["docker", "inspect", *ids]))
+
+    def fence(self):
+        records = self.containers()
+        writers = []
+        for item in records:
+            labels = item["Config"]["Labels"]
+            if labels.get("com.docker.compose.project") != self.project:
+                raise RuntimeError("Refusing to fence another project")
+            if labels.get("com.docker.compose.service") in WRITERS:
+                writers.append(item)
+        receipt = self.reports / (self.project + "-fence.json")
+        if not receipt.exists():
+            save(receipt, {"project": self.project, "containers": [
+                {"id": item["Id"], "service": item["Config"]["Labels"]["com.docker.compose.service"],
+                 "previous_restart_policy": item["HostConfig"]["RestartPolicy"]} for item in writers]})
+        if writers:
+            subprocess.run(["docker", "update", "--restart=no", *[item["Id"] for item in writers]],
+                           check=True, stdout=subprocess.DEVNULL)
+        stopped = self.quiesce()
+        self.assert_fenced()
+        return {"stopped": stopped, "restart_disabled": len(writers), "receipt": str(receipt)}
+
+    def assert_fenced(self):
+        assert_fenced_records(self.containers(), self.project)
 
     def volume(self, key):
         value = self.configuration["volumes"][key]
@@ -104,10 +144,18 @@ class Stand:
     def archive(self, key, path):
         name = self.volume(key)
         image = self.configuration["services"]["db"]["image"]
-        with path.open("wb") as stream:
-            subprocess.run(["docker", "run", "--rm", "--network", "none", "--mount",
-                f"type=volume,source={name},target=/data,readonly", image, "tar", "-C", "/data", "-cf", "-", "."],
-                stdout=stream, check=True)
+        # Write on the same host directly. Streaming multi-GB tar data through
+        # the Docker API needlessly prolongs the write barrier in rootless Docker.
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        # Keep the host user's ownership across rootless bind mounts. If Docker
+        # creates the output itself, the executor may see an unmapped UID.
+        with temporary.open("xb") as stream:
+            os.fchmod(stream.fileno(), 0o600)
+        subprocess.run(["docker", "run", "--rm", "--network", "none", "--mount",
+            f"type=volume,source={name},target=/data,readonly", "--mount",
+            f"type=bind,source={path.parent.resolve()},target=/bundle", image,
+            "tar", "-C", "/data", "-cf", "/bundle/" + temporary.name, "."], check=True)
+        temporary.replace(path)
         path.chmod(0o600)
         valid_tar(path)
 
@@ -118,10 +166,10 @@ class Stand:
         subprocess.run(["docker", "volume", "create", name], check=True, stdout=subprocess.DEVNULL)
         valid_tar(path)
         image = self.configuration["services"]["db"]["image"]
-        with path.open("rb") as stream:
-            subprocess.run(["docker", "run", "--rm", "-i", "--network", "none", "--mount",
-                f"type=volume,source={name},target=/data", image, "tar", "-C", "/data", "-xf", "-"],
-                stdin=stream, check=True)
+        subprocess.run(["docker", "run", "--rm", "--network", "none", "--mount",
+            f"type=volume,source={name},target=/data", "--mount",
+            f"type=bind,source={path.parent.resolve()},target=/bundle,readonly", image,
+            "tar", "-C", "/data", "-xf", "/bundle/" + path.name], check=True)
 
     def postgres(self, program, *arguments):
         service = self.configuration["services"]["db"]["environment"]
@@ -132,7 +180,7 @@ def backup(source, destination, resume):
     destination.mkdir(mode=0o700, parents=True, exist_ok=False)
     started = time.monotonic(); active = source.quiesce(); broker_running = "rabbitmq" in source.running()
     manifest = {"backup_id": destination.name, "source_project": source.project,
-                "boundary_utc": datetime.now(timezone.utc).isoformat(), "complete": False,
+                "boundary_utc": datetime.now(timezone.utc).isoformat(), "complete": False, "source_resumed": False,
                 "scope": "isolated same-host drill; independent carrier/retention/RPO/RTO targets not approved"}
     try:
         snapshot = source.backend("describe"); save(destination / "snapshot.json", snapshot)
@@ -152,12 +200,14 @@ def backup(source, destination, resume):
         manifest["complete"] = True
         save(destination / "manifest.json", manifest)
     finally:
-        if resume:
-            services = (["rabbitmq"] if broker_running else []) + active
-            if services: source.run(["start", "--wait", "--wait-timeout", "240", *services], label="resume")
-        manifest["pause_seconds"] = time.monotonic() - started
-        manifest["source_resumed"] = resume
-        save(destination / "manifest.json", manifest)
+        try:
+            if resume:
+                services = (["rabbitmq"] if broker_running else []) + active
+                if services: source.run(["up", "-d", "--no-deps", "--wait", "--wait-timeout", "240", *services], label="resume")
+                manifest["source_resumed"] = True
+        finally:
+            manifest["pause_seconds"] = time.monotonic() - started
+            save(destination / "manifest.json", manifest)
     return manifest
 
 
@@ -174,6 +224,7 @@ def restore(source, target, bundle, authority, state_path):
     started = time.monotonic()
     if source.project == target.project: raise RuntimeError("Source and restore target must differ")
     if source.running() & WRITERS: raise RuntimeError("Fence source writers before restoring/opening another stand")
+    source.assert_fenced()
     if target.running(): raise RuntimeError("Restore target must be new and stopped")
     if subprocess.run(["docker", "volume", "inspect", target.volume("postgres_data")], capture_output=True).returncode == 0:
         raise RuntimeError("Target PostgreSQL volume already exists; choose a new isolated target")
@@ -232,7 +283,7 @@ def restore(source, target, bundle, authority, state_path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("action", choices=["preflight", "backup", "quiesce", "export-journal", "restore", "open"])
+    parser.add_argument("action", choices=["preflight", "backup", "quiesce", "fence", "export-journal", "restore", "open"])
     parser.add_argument("--bundle", type=Path)
     parser.add_argument("--authority", type=Path)
     parser.add_argument("--resume", action="store_true")
@@ -250,6 +301,7 @@ def main():
         bundle = args.bundle or Path(config["backup_root"]) / ("backup-" + uuid.uuid4().hex)
         result = backup(source, bundle, args.resume)
     elif args.action == "quiesce": result = {"stopped": source.quiesce()}
+    elif args.action == "fence": result = source.fence()
     elif args.action == "export-journal":
         if not args.authority: parser.error("--authority is required")
         result = export_authority(source, args.authority)
@@ -261,9 +313,20 @@ def main():
             result = restore(source, target, args.bundle, args.authority, state_path)
         else:
             if source.running() & WRITERS: raise RuntimeError("Old writers must remain fenced")
+            source.assert_fenced()
             state = json.loads(state_path.read_text())
             if state["target_project"] != target.project or not state.get("verified"):
                 raise RuntimeError("Target has no completed verification gate")
+            alias = target.spec.get("public_alias_port")
+            if alias is not None:
+                if str(alias) != str(source.spec["env"]["VIDHARBOR_PORT"]):
+                    raise RuntimeError("Drill cutover alias must be the fenced source's local port")
+                override = reports / (target.project + "-cutover-ports.json")
+                save(override, {"services": {"web": {"ports": ["127.0.0.1:" + str(alias) + ":80"]}}})
+                files = config["target"]["compose_files"]
+                if str(override) not in files: files.append(str(override))
+                save(args.config, config)
+                target = Stand(config["target"], reports)
             started = time.monotonic()
             target.run(["up", "-d", "--no-deps", "--force-recreate", "--wait", "--wait-timeout", "240", "api", "upload", "web", "relay", "worker", "cleanup"], label="open-verified-http")
             with urlopen("http://127.0.0.1:" + str(target.spec["env"]["VIDHARBOR_PORT"]) + "/health/ready", timeout=15) as response:

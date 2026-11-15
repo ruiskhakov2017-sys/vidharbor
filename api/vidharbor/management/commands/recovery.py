@@ -1,4 +1,5 @@
 """Read/verify a paused stand and reconcile a fenced restore. No database deletion."""
+import hashlib
 import json
 import sys
 
@@ -28,6 +29,7 @@ def describe():
     return {"files": files, "models": models, "journal_head": head}
 
 
+@transaction.atomic
 def reconcile(apply=False):
     if not settings.RESTORE_MODE:
         raise CommandError("Reconciliation requires RESTORE_MODE=1 and fenced old writers")
@@ -40,8 +42,9 @@ def reconcile(apply=False):
         job = Job.objects.get(video=video, generation=video.published_generation, state="SUCCEEDED")
         attempt = job.attempts.get(state="SUCCEEDED")
         verify_manifest(ready_path(video.id, video.published_generation), job, attempt.pk)
-    for job in Job.objects.filter(video__state="QUEUED", state__in=["QUEUED", "PROCESSING", "RETRY_WAIT"]).select_related("video"):
-        if job.generation != job.video.generation:
+    for job in Job.objects.filter(state__in=["QUEUED", "PROCESSING", "RETRY_WAIT"]).exclude(
+            video__state__in=["DELETING", "DELETED"]).select_related("video"):
+        if job.generation != job.video.generation or job.video.state != "QUEUED":
             raise CommandError("Unaccounted active obsolete generation")
         message = Outbox.objects.filter(job=job, kind="video.transcode.v1").order_by("-attempt_no").first()
         if message is None:
@@ -53,10 +56,16 @@ def reconcile(apply=False):
             # Duplicates in the cold broker copy keep the same message ID.
             Outbox.objects.filter(pk=message.pk).update(sent_at=None)
     reservations = {e["key"]: e["data"] for e in entries if e["kind"] == "sheet"}
-    for event in ReadyEvent.objects.all():
+    for event in ReadyEvent.objects.select_related("source__job"):
         reservation = reservations.get(str(event.pk))
         if reservation is None or reservation["row"] != event.sheet_row:
             raise CommandError("Unaccounted sheet reservation: notifier must remain closed")
+        source = event.source
+        if (source is None or source.pk != event.pk or source.kind != "video.ready"
+                or source.job.video_id != event.video_id or source.job.generation != event.generation
+                or event.payload != {**source.payload, "sheet_row": event.sheet_row}
+                or reservation.get("snapshot_sha256") != hashlib.sha256(journal.canonical(source.payload)).hexdigest()):
+            raise CommandError("Restored READY snapshot conflicts with its source or reservation")
     high = max((r["row"] + 1 for r in reservations.values()), default=2)
     if apply:
         with transaction.atomic():

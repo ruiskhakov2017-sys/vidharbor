@@ -1,4 +1,4 @@
-"""Migration 0003 -> 0004 on a dedicated disposable PostgreSQL database only."""
+"""S04 -> integrated S05/S06 migration on a dedicated disposable PostgreSQL DB."""
 
 import json
 import os
@@ -36,13 +36,15 @@ def main():
     names = ("Upload", "Video", "Job", "Attempt", "Outbox")
     before = {name: list(apps.get_model("vidharbor", name).objects.values()) for name in names}
     executor = MigrationExecutor(connection)
-    target = [("vidharbor", "0004_job_retry_of")]
+    target = [("vidharbor", "0006_notifications")]
     executor.migrate(target)
     current = executor.loader.project_state(target).apps
     for name in names:
         after = list(current.get_model("vidharbor", name).objects.values())
         if name == "Job":
             assert all(item.pop("retry_of_id") is None for item in after)
+        if name == "Video":
+            assert all(item.pop("deleted_at") is None for item in after)
         assert after == before[name], name
     Job = current.get_model("vidharbor", "Job")
     child = Job.objects.create(video_id=video.id, generation=2, retry_of_id=job.id)
@@ -54,7 +56,7 @@ def main():
     else:
         raise AssertionError("Missing unique retry_of constraint")
     assert Job.objects.get(retry_of_id=job.id).id == child.id
-    print(json.dumps({"upgrade":"0003 -> 0004","preserved":list(names),"nullable_existing_jobs":True,"unique_successor":True}))
+    print(json.dumps({"upgrade":"0003 -> 0006","preserved":list(names),"nullable_existing_jobs":True,"unique_successor":True}))
 
 
 if __name__ == "__main__":
