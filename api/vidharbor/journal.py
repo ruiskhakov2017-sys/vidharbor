@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from django.conf import settings
+from django.utils import timezone
 
 from .storage import sync_directory
 
@@ -69,7 +70,8 @@ def append(kind, key, data):
                 raise JournalUnavailable("Journal key already has different data")
             return found
         entry = {"sequence": head["sequence"] + 1, "previous": head["digest"],
-                 "kind": kind, "key": str(key), "data": data}
+                 "kind": kind, "key": str(key), "data": data,
+                 "created_at": timezone.now().isoformat()}
         entry["digest"] = hashlib.sha256(canonical(entry)).hexdigest()
         with (root / "ledger.jsonl").open("ab") as stream:
             stream.write(canonical(entry) + b"\n")

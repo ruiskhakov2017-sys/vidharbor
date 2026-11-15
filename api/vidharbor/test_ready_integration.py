@@ -13,8 +13,8 @@ from django.utils import timezone
 
 from . import journal
 from .deletion import revoke
-from .models import Delivery, Job, Outbox, ReadyEvent, SheetAllocator, Upload, Video
-from .notifications import attach_existing_ready, claim, finish
+from .models import Delivery, Job, Outbox, ReadyEvent, ReceiverRow, SheetAllocator, Upload, Video
+from .notifications import Webhook, attach_existing_ready, claim, finish
 
 
 class ReadyIntegrationTests(TransactionTestCase):
@@ -85,3 +85,34 @@ class ReadyIntegrationTests(TransactionTestCase):
         Video.objects.filter(pk=video.pk).update(state="READY")
         attach_existing_ready()
         with self.settings(RESTORE_MODE=True): self.assertIsNone(claim(source.pk))
+
+    def test_deletion_during_real_http_request_keeps_historical_row_and_ignores_ack(self):
+        from . import test_receiver
+        secret = b"test-only-" + b"x" * 32
+        video, source = self.source(); attach_existing_ready()
+        entered, release = threading.Event(), threading.Event()
+        original_write = test_receiver.write_row
+        def delayed(payload):
+            entered.set()
+            if not release.wait(8): raise RuntimeError("test barrier expired")
+            return original_write(payload)
+        server = test_receiver.receiver(secret, ("127.0.0.1", 0))
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        webhook = Webhook(f"http://127.0.0.1:{server.server_port}/video-ready", ["127.0.0.1"], secret, allow_test_loopback=True)
+        sending = claim(source.pk)
+        def deliver():
+            try: return webhook.send(sending.event)
+            finally: connections.close_all()
+        try:
+            with patch("vidharbor.test_receiver.write_row", side_effect=delayed), ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(deliver)
+                self.assertTrue(entered.wait(5))
+                revoke(video.id)
+                release.set()
+                outcome, reason, delay = future.result(timeout=8)
+            finish(sending, outcome, reason, delay)
+            self.assertEqual(Delivery.objects.get(pk=source.pk).state, "CANCELLED")
+            self.assertEqual(ReceiverRow.objects.get(number=sending.event.sheet_row).event_id, source.pk)
+            self.assertEqual(Job.objects.count(), 1)
+        finally:
+            release.set(); server.shutdown(); server.server_close(); thread.join(timeout=5)

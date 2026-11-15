@@ -2,6 +2,8 @@
 import logging
 import shutil
 import time
+import uuid
+from datetime import datetime
 
 from django.db import transaction
 from django.utils import timezone
@@ -20,11 +22,16 @@ def revoke(video_id):
             return video
         # Journal survives rollback/restore of PostgreSQL. No confirmed deletion
         # without this durable intent. Readers also consult it after a DB rollback.
-        journal.append("delete", video.id, {"video_id": str(video.id), "upload_id": str(video.upload_id)})
+        existing = journal.deletion_record(video.id)
+        data = existing["data"] if existing else {
+            "video_id": str(video.id), "upload_id": str(video.upload_id),
+            "deletion_id": str(uuid.uuid4()), "generation": video.generation,
+            "deleted_at": timezone.now().isoformat()}
+        journal.append("delete", video.id, data)
         video.state = Video.State.DELETING
         video.generation += 1
         video.published_generation = None
-        video.deleted_at = timezone.now()
+        video.deleted_at = datetime.fromisoformat(data["deleted_at"]) if "deleted_at" in data else timezone.now()
         video.save(update_fields=["state", "generation", "published_generation", "deleted_at"])
         jobs = Job.objects.filter(video=video).exclude(state__in=[Job.State.SUCCEEDED, Job.State.FAILED, Job.State.CANCELLED])
         Attempt.objects.filter(job__in=jobs, state=Attempt.State.RUNNING).update(
