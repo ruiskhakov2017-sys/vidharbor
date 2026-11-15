@@ -116,9 +116,17 @@ def main():
         wait_for(lambda: compose("exec", "-T", "upload", "python", "-c",
             "import urllib.request\ntry:\n print(urllib.request.urlopen('http://127.0.0.1:8000/health/live',timeout=5).status)"
             "\nexcept OSError:\n print(0)") == "200")
-        # Rootless Docker can assign a new IP after restart; refresh Nginx's existing static upstream.
-        compose("exec", "-T", "web", "nginx", "-s", "reload")
-        receipt = require(page.request.post(route, headers={"X-CSRFToken": csrf})).json()
+        # Verify the public route recovers after Docker DNS changes, without a
+        # manual Nginx reload. A bounded transient 502/503/504 during restart is
+        # allowed; every other response and all receipt invariants stay strict.
+        def recovered_receipt():
+            response = page.request.post(route, headers={"X-CSRFToken": csrf})
+            if response.status in (502, 503, 504):
+                return None
+            return require(response).json()
+        restart_started = time.monotonic()
+        receipt = wait_for(recovered_receipt, timeout=30)
+        print(f"Upload public route recovered after restart in {time.monotonic()-restart_started:.3f}s without nginx reload.", flush=True)
         assert receipt["job"]["id"] == second_job
         compose("start", "rabbitmq")
         wait_for(lambda: page.request.get(BASE + "/health/ready").status == 200)
