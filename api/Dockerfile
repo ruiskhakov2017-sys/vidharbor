@@ -14,6 +14,8 @@ COPY vidharbor/ vidharbor/
 USER 65532:65532
 
 FROM base AS upload
-RUN apk add --no-cache ffmpeg=8.1.3-r0
+# BusyBox timeout detaches a watchdog that inherits flock outside the FFmpeg group.
+# GNU timeout keeps the monitor and writer in the group stopped by transcode.py.
+RUN apk add --no-cache ffmpeg=8.1.3-r0 coreutils=9.11-r0
 COPY --from=app /app/ /app/
 USER 65532:65532
