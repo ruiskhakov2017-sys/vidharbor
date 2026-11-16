@@ -10,6 +10,7 @@ import {
 
 import { api, ApiError } from "./api";
 import "./public.css";
+import "./public-direction.css";
 
 type IconName =
   | "play"
@@ -437,9 +438,12 @@ export const PublicVideos = defineComponent({
     }
     function card(item: PublicVideo, compact = false) {
       return h("li", { key: item.id }, [
-        h("a", { href: item.watch_url, class: ["video-card", { compact }] }, [
+        h("a", { href: item.watch_url, class: ["video-card", { compact }], "data-topic": item.category }, [
           h("div", { class: "card-frame" }, [
             cover(item),
+            !compact && item.category
+              ? h("span", { class: "frame-topic", "aria-hidden": "true" }, [icon(topicIcon(item.category)), item.category])
+              : null,
             duration(item.duration_seconds)
               ? h(
                   "span",
@@ -596,9 +600,18 @@ export const PublicVideos = defineComponent({
             "button",
             {
               "aria-pressed": category.value === name,
+              "data-topic": name,
               onClick: () => selectCategory(name),
             },
-            [icon(topicIcon(name)), name],
+            [
+              h("span", { class: "topic-art", "aria-hidden": "true" }, [
+                name !== "Все видео" && items.value.find((item) => item.category === name && item.thumbnail_url && !failedImages.value.has(item.id))
+                  ? cover(items.value.find((item) => item.category === name && item.thumbnail_url && !failedImages.value.has(item.id))!)
+                  : icon(topicIcon(name)),
+              ]),
+              h("span", { class: "topic-name" }, name),
+              icon("next", "topic-arrow"),
+            ],
           ),
         ),
       );

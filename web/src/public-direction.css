@@ -1,0 +1,77 @@
+/* Graphite: a film-library treatment of the public video application. */
+.public-site { --bg: #101217; --surface: #202329; --muted: #a7abb6; --accent: #beb6eb; background: var(--bg); }
+body:has(.public-site) { background: #101217; }
+.public-site .portal-header { background: #111318f5; box-shadow: none; }
+.public-site .brand { letter-spacing: -1.1px; }
+.public-site .brand-mark { border-radius: 50%; width: 34px; height: 34px; background: #c2b6ed; box-shadow: 0 0 0 4px #c2b6ed0b; }
+.public-site .portal-sidebar { background: #15171c; border-right-color: #ffffff09; padding-top: 26px; }
+.public-site .sidebar-item.selected { background: #282631; border-color: #ffffff08; box-shadow: inset 3px 0 #c2b6ed; }
+.public-site .sidebar-bottom > a { background: #202228; border-color: #ffffff0b; }
+.public-site .portal-search { background: #1c1e25; border-color: #ffffff18; border-radius: 50px; box-shadow: none; }
+.public-site .portal-search button { background: #2b2d36; border-left-color: #ffffff0c; }
+.public-site .upload-link { background: #25262e; border-radius: 50px; }
+.public-site .topic-chips { position: static; background: none; gap: 10px; padding-bottom: 22px; }
+.public-site .topic-chips button { position: relative; flex: 1 0 125px; height: 64px; padding: 8px 11px; overflow: hidden; background: #21242b; color: #dfe1e7; border: 1px solid #ffffff0b; border-radius: 12px; gap: 10px; text-align: left; }
+.public-site .topic-chips button:hover { background: #303039; border-color: #a99ac35e; }
+.public-site .topic-chips button[aria-pressed="true"] { background: #d3caeb; color: #282332; border-color: #e6ddfa; }
+.public-site .topic-art { display: grid; place-items: center; flex: 0 0 40px; height: 44px; border-radius: 7px; overflow: hidden; background: #ffffff09; }
+.public-site .topic-art img { width: 40px; height: 44px; object-fit: cover; transition: transform .3s; }
+.public-site .topic-chips button:hover img { transform: scale(1.1); }
+.public-site .topic-art svg { width: 22px; height: 22px; opacity: 1; }
+.public-site .topic-name { font-size: 11px; font-weight: 650; }
+.public-site .topic-chips .topic-arrow { display: none; }
+.public-site .catalog-heading { margin: 1px 0 22px; }
+.public-site .catalog-heading h1 { font-size: 30px; font-weight: 750; letter-spacing: -1px; }
+.public-site .video-count { color: #a3a2b0; border: 0; border-left: 1px solid #ffffff20; border-radius: 0; padding-left: 14px; }
+.public-site .view-controls { background: #1d1f26; border-color: #ffffff0c; }
+.public-site .video-grid { gap: 27px 22px; }
+.public-site .video-card:not(.compact) { padding: 0 0 14px; margin: 0; border: 1px solid #ffffff0c; background: #1b1e24; border-radius: 14px; overflow: hidden; transition: border-color .2s, background .2s, transform .2s; }
+.public-site .video-card:not(.compact):hover { background: #22252d; border-color: #8e82ae66; transform: translateY(-3px); }
+.public-site .video-grid .card-frame { border: 0; border-radius: 13px 13px 0 0; box-shadow: none; }
+.public-site .video-grid .card-info { margin: 15px 15px 0; gap: 10px; }
+.public-site .video-grid .card-text h3 { font-size: 15px; font-weight: 650; line-height: 1.5; }
+.public-site .card-creator { color: #b4b4bf; }
+.public-site .card-meta { color: #979ba8; }
+.public-site .creator-avatar { background: #30303b; color: #c7bedf; border-radius: 50%; border: 1px solid #ffffff0d; }
+.public-site .frame-topic { position: absolute; top: 10px; left: 10px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid #ffffff26; border-radius: 5px; padding: 4px 7px; background: #0e131bb8; backdrop-filter: blur(12px); color: #f4f3f8; font-size: 9px; font-weight: 600; }
+.public-site .frame-topic svg { width: 11px; height: 11px; }
+.public-site .duration { right: 10px; bottom: 10px; padding: 2px 6px; }
+.public-site .card-play-action { border-radius: 50px; background: #eae3ffc9; color: #292037; }
+.public-site .card-play-action svg { background: none; color: inherit; }
+.public-site .video-description { background: #1e2128; border-color: #ffffff0b; }
+.public-site .player-toolbar { background: #22252c; border-color: #ffffff0c; margin: 0; border-radius: 0 0 14px 14px; padding: 11px 16px; }
+.public-site .player { border-radius: 14px 14px 0 0; }
+.public-site .player-toolbar select { background: #33343e; color: #e2dff0; }
+.public-site .watch-related { padding: 18px; border: 1px solid #ffffff0c; border-radius: 16px; background: #181b21; }
+.public-site .watch-layout { grid-template-columns: minmax(0, 1fr) 365px; }
+.public-site .video-card.compact { grid-template-columns: 140px minmax(0,1fr); gap: 11px; }
+.public-site .compact .card-text h3 { font-size: 12px; }
+.public-site .related-chips button { background: #282b34; }
+.public-site .related-chips button[aria-pressed="true"] { background: #d3caeb; }
+.public-site .watch-related h2 { font-size: 15px; }
+.public-site .watch-creator .creator-avatar { border-radius: 50%; }
+@media (max-width: 1200px) and (min-width: 851px) {
+  .public-site .watch-layout { grid-template-columns: minmax(0,1fr) 310px; }
+  .public-site .watch-related { padding: 13px; }
+  .public-site .video-card.compact { grid-template-columns: 115px minmax(0,1fr); }
+}
+@media (max-width: 850px) {
+  .public-site .watch-layout { grid-template-columns: minmax(0,1fr); }
+  .public-site .video-card.compact { grid-template-columns: 40% minmax(0,1fr); }
+  .public-site .compact .card-text h3 { font-size: 14px; }
+}
+@media (max-width: 600px) {
+  .public-site .brand-mark { width: 28px; height: 28px; }
+  .public-site .topic-chips { padding-top: 2px; padding-bottom: 17px; }
+  .public-site .topic-chips button { height: 55px; flex: 0 0 auto; min-width: 126px; padding: 6px 10px; }
+  .public-site .topic-art, .public-site .topic-art img { height: 39px; width: 34px; flex-basis: 34px; }
+  .public-site .catalog-heading h1 { font-size: 26px; }
+  .public-site .catalog-heading { margin: 1px 0 18px; }
+  .public-site .video-grid { gap: 20px; }
+  .public-site .video-grid .card-info { margin: 13px 12px 0; }
+  .public-site .video-grid .card-text h3 { font-size: 15px; }
+  .public-site .player { border-radius: 0; }
+  .public-site .player-toolbar { border-radius: 0; padding: 11px 12px; }
+  .public-site .watch-related { margin: 25px 16px 0; padding: 16px 12px; }
+  .public-site .compact .card-text h3 { font-size: 12px; }
+}
