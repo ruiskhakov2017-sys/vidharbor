@@ -10,7 +10,6 @@ import {
 
 import { api, ApiError } from "./api";
 import "./public.css";
-import "./public-direction.css";
 
 type IconName =
   | "play"
@@ -33,10 +32,21 @@ type IconName =
   | "brand"
   | "largeGrid"
   | "speed"
-  | "quality";
+  | "quality"
+  | "bookmark"
+  | "headphones"
+  | "music"
+  | "sport"
+  | "food";
 function icon(kind: IconName, className = "") {
   const paths = {
-    brand: "M3 5l5 14 5-14M16 5v14M16 12h5M21 5v14",
+    brand: "M3 8v8M7 4v16M12 5l9 7-9 7z",
+    bookmark: "M6 3h12v18l-6-4-6 4z",
+    headphones: "M4 14v-3a8 8 0 0 1 16 0v3M4 12h3v8H4zM17 12h3v8h-3z",
+    music:
+      "M9 18V5l12-2v13M9 5v5l12-2M9 18a3 3 0 1 1-3-3c2 0 3 1 3 3ZM21 16a3 3 0 1 1-3-3c2 0 3 1 3 3Z",
+    sport: "m4 7 3-3 13 13-3 3zM2 10l8-8M14 22l8-8",
+    food: "M5 3v6c0 3 6 3 6 0V3M8 3v18M19 3c-4 3-4 9 0 10V3Zm0 10v8",
     largeGrid: "M3 4h18v6H3zM3 14h18v6H3z",
     speed: "M4 17a9 9 0 1 1 16 0M12 13l5-5M5 11l2 1m4-7v2m8 5 2-1",
     quality: "m12 3 8 4v5c0 4-4 7-8 9-4-2-8-5-8-9V7zM8 12l3 3 5-6",
@@ -228,6 +238,59 @@ const Player = defineComponent({
   },
 });
 
+const Preview = defineComponent({
+  props: { source: { type: String, required: true } },
+  setup(props) {
+    const element = ref<HTMLVideoElement>();
+    const playing = ref(false);
+    let engine: Hls | undefined;
+    let disposed = false;
+    onMounted(async () => {
+      try {
+        const { default: Engine } = await import("hls.js");
+        if (disposed || !element.value || !Engine.isSupported()) return;
+        engine = new Engine({ maxBufferLength: 6, capLevelToPlayerSize: true });
+        engine.on(Engine.Events.MEDIA_ATTACHED, () =>
+          engine?.loadSource(props.source),
+        );
+        engine.on(Engine.Events.MANIFEST_PARSED, () => {
+          void element.value?.play().catch(() => {});
+        });
+        engine.on(Engine.Events.ERROR, (_, data) => {
+          if (data.fatal) {
+            playing.value = false;
+            engine?.destroy();
+          }
+        });
+        engine.attachMedia(element.value);
+      } catch {
+        /* A failed optional preview leaves the thumbnail and link usable. */
+      }
+    });
+    onBeforeUnmount(() => {
+      disposed = true;
+      engine?.destroy();
+    });
+    return () =>
+      h(
+        "div",
+        { class: ["thumbnail-preview", { playing }], "aria-hidden": "true" },
+        [
+          h("video", {
+            ref: element,
+            muted: true,
+            loop: true,
+            playsinline: true,
+            onPlaying: () => {
+              playing.value = true;
+            },
+          }),
+          h("span", "Без звука"),
+        ],
+      );
+  },
+});
+
 export const PublicVideos = defineComponent({
   props: { videoId: { type: String, required: true } },
   setup(props) {
@@ -238,6 +301,91 @@ export const PublicVideos = defineComponent({
     const category = ref(initialParams.get("topic") || "Все видео");
     const items = ref<PublicVideo[]>([]);
     const video = ref<PublicVideo>();
+    type FeedView = "feed" | "saved" | "topics";
+    const initialView = initialParams.get("view");
+    const feedView = ref<FeedView>(
+      initialView === "saved" || initialView === "topics"
+        ? initialView
+        : "feed",
+    );
+    const saved = ref<string[]>([]);
+    const activePreview = ref("");
+    const previewsEnabled = ref(true);
+    const pointerAllowsPreview = window.matchMedia(
+      "(hover: hover) and (pointer: fine)",
+    );
+    let previewTimer: number | undefined;
+    try {
+      const value: unknown = JSON.parse(
+        localStorage.getItem("vidharbor.public.saved") || "[]",
+      );
+      if (Array.isArray(value))
+        saved.value = value
+          .filter((id): id is string => typeof id === "string")
+          .slice(0, 500);
+    } catch {
+      /* Browsing still works with storage disabled. */
+    }
+    function toggleSaved(item: PublicVideo) {
+      saved.value = saved.value.includes(item.id)
+        ? saved.value.filter((id) => id !== item.id)
+        : [...saved.value.slice(-499), item.id];
+      try {
+        localStorage.setItem(
+          "vidharbor.public.saved",
+          JSON.stringify(saved.value),
+        );
+      } catch {
+        /* Keep the current session usable. */
+      }
+    }
+    function stopPreview() {
+      window.clearTimeout(previewTimer);
+      activePreview.value = "";
+    }
+    function startPreview(item: PublicVideo) {
+      stopPreview();
+      if (
+        !previewsEnabled.value ||
+        !pointerAllowsPreview.matches ||
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      )
+        return;
+      previewTimer = window.setTimeout(() => {
+        activePreview.value = item.id;
+      }, 350);
+    }
+    function chooseView(view: FeedView) {
+      if (isWatch) {
+        window.location.assign(catalogUrl("", "Все видео", view));
+        return;
+      }
+      feedView.value = view;
+      category.value = "Все видео";
+      query.value = "";
+      stopPreview();
+      if (!desktop.matches) closeMenu();
+      void load();
+    }
+    function saveButton(item: PublicVideo, withText = false) {
+      const selected = saved.value.includes(item.id);
+      return h(
+        "button",
+        {
+          class: withText ? "action-button save-action" : "card-save",
+          "aria-label": selected
+            ? "Убрать из сохранённого: " + item.title
+            : "Смотреть позже: " + item.title,
+          "aria-pressed": selected,
+          title: selected ? "Убрать из сохранённого" : "Смотреть позже",
+          onClick: () => toggleSaved(item),
+        },
+        [
+          icon("bookmark"),
+          withText ? (selected ? "Сохранено" : "Смотреть позже") : null,
+        ],
+      );
+    }
     const topics = ref<string[]>([]);
     const busy = ref(true);
     const error = ref("");
@@ -249,14 +397,17 @@ export const PublicVideos = defineComponent({
     const largeCards = ref(false);
     try {
       largeCards.value =
-        localStorage.getItem("vidharbor.public.largeCards") === "true";
+        localStorage.getItem("vidharbor.public.signal.largeCards") === "true";
     } catch {
       /* Storage can be unavailable. */
     }
     function setCardSize(large: boolean) {
       largeCards.value = large;
       try {
-        localStorage.setItem("vidharbor.public.largeCards", String(large));
+        localStorage.setItem(
+          "vidharbor.public.signal.largeCards",
+          String(large),
+        );
       } catch {
         /* The view still works without persistence. */
       }
@@ -268,9 +419,12 @@ export const PublicVideos = defineComponent({
     let copyTimer: number | undefined;
     const categories = computed(() => ["Все видео", ...topics.value]);
     const filtered = computed(() =>
-      category.value === "Все видео"
-        ? items.value
-        : items.value.filter((item) => item.category === category.value),
+      items.value.filter(
+        (item) =>
+          (category.value === "Все видео" ||
+            item.category === category.value) &&
+          (feedView.value !== "saved" || saved.value.includes(item.id)),
+      ),
     );
     const recommendations = computed(() =>
       items.value.filter(
@@ -279,9 +433,14 @@ export const PublicVideos = defineComponent({
           (!relatedTopic.value || item.category === video.value?.category),
       ),
     );
-    function catalogUrl(q = "", topic = "Все видео") {
+    function catalogUrl(
+      q = "",
+      topic = "Все видео",
+      view: FeedView = feedView.value,
+    ) {
       const params = new URLSearchParams();
       if (q) params.set("q", q);
+      if (view !== "feed") params.set("view", view);
       if (topic !== "Все видео") params.set("topic", topic);
       return "/catalog" + (params.size ? "?" + params.toString() : "");
     }
@@ -370,21 +529,28 @@ export const PublicVideos = defineComponent({
     onBeforeUnmount(() => {
       ++requestId;
       window.clearTimeout(copyTimer);
+      stopPreview();
       desktop.removeEventListener("change", viewportChanged);
       window.removeEventListener("keydown", escapeMenu);
     });
     function submitSearch(event: Event) {
       event.preventDefault();
       if (isWatch) {
-        window.location.assign(catalogUrl(query.value.trim()));
+        window.location.assign(
+          catalogUrl(query.value.trim(), "Все видео", "feed"),
+        );
         return;
       }
       category.value = "Все видео";
+      feedView.value = "feed";
+      stopPreview();
       void load();
     }
     function reset() {
       query.value = "";
       category.value = "Все видео";
+      feedView.value = "feed";
+      stopPreview();
       void load();
     }
     function clearSearch() {
@@ -394,10 +560,12 @@ export const PublicVideos = defineComponent({
     }
     function selectCategory(name: string) {
       if (isWatch) {
-        window.location.assign(catalogUrl("", name));
+        window.location.assign(catalogUrl("", name, "feed"));
         return;
       }
+      feedView.value = "feed";
       category.value = name;
+      stopPreview();
       window.history.replaceState(null, "", catalogUrl(searched.value, name));
       if (!desktop.matches) closeMenu();
     }
@@ -437,51 +605,64 @@ export const PublicVideos = defineComponent({
       );
     }
     function card(item: PublicVideo, compact = false) {
-      return h("li", { key: item.id }, [
-        h(
-          "a",
-          {
-            href: item.watch_url,
-            class: ["video-card", { compact }],
-            "data-topic": item.category,
-          },
-          [
-            h("div", { class: "card-frame" }, [
-              cover(item),
-              !compact && item.category
-                ? h("span", { class: "frame-topic", "aria-hidden": "true" }, [
-                    icon(topicIcon(item.category)),
-                    item.category,
-                  ])
-                : null,
-              duration(item.duration_seconds)
-                ? h(
-                    "span",
-                    { class: "duration" },
-                    duration(item.duration_seconds),
-                  )
-                : null,
-              h("span", { class: "hover-play", "aria-hidden": "true" }, [
-                h("span", { class: "card-play-action" }, [
-                  icon("play"),
-                  h("span", "Смотреть"),
+      return h(
+        "li",
+        {
+          key: item.id,
+          class: ["card-entry", { "compact-entry": compact }],
+          onMouseenter: () => startPreview(item),
+          onMouseleave: stopPreview,
+        },
+        [
+          h(
+            "a",
+            {
+              href: item.watch_url,
+              class: ["video-card", { compact }],
+              "data-topic": item.category,
+            },
+            [
+              h("div", { class: "card-frame" }, [
+                cover(item),
+                activePreview.value === item.id
+                  ? h(Preview, { source: item.playlist_url })
+                  : null,
+                duration(item.duration_seconds)
+                  ? h(
+                      "span",
+                      { class: "duration" },
+                      duration(item.duration_seconds),
+                    )
+                  : null,
+                h("span", { class: "hover-play", "aria-hidden": "true" }, [
+                  h("span", { class: "card-play-action" }, [
+                    icon("play"),
+                    h("span", "Смотреть"),
+                  ]),
                 ]),
               ]),
-            ]),
-            h("div", { class: "card-info" }, [
-              avatar(item),
-              h("div", { class: "card-text" }, [
-                h("h3", item.title),
-                h("p", { class: "card-creator" }, item.creator || "VidHarbor"),
-                h("p", { class: "card-meta" }, [
-                  item.category || "Видео",
-                  item.demo ? h("span", { class: "demo-label" }, "Демо") : null,
+              h("div", { class: "card-info" }, [
+                avatar(item),
+                h("div", { class: "card-text" }, [
+                  h("h3", item.title),
+                  h(
+                    "p",
+                    { class: "card-creator" },
+                    item.creator || "VidHarbor",
+                  ),
+                  h("p", { class: "card-meta" }, [
+                    item.category || "Видео",
+                    item.demo
+                      ? h("span", { class: "demo-label" }, "Демо")
+                      : null,
+                  ]),
                 ]),
               ]),
-            ]),
-          ],
-        ),
-      ]);
+            ],
+          ),
+          !compact ? saveButton(item) : null,
+        ],
+      );
     }
     function topicIcon(name: string): IconName {
       const icons: Record<string, IconName> = {
@@ -491,6 +672,11 @@ export const PublicVideos = defineComponent({
         Путешествия: "travel",
         Архитектура: "architecture",
         Кино: "film",
+        Подкасты: "headphones",
+        Музыка: "music",
+        Спорт: "sport",
+        Еда: "food",
+        Кулинария: "food",
       };
       return icons[name] || "grid";
     }
@@ -505,23 +691,45 @@ export const PublicVideos = defineComponent({
         },
         [
           h("nav", { "aria-label": "Разделы" }, [
-            h(
-              "button",
-              {
-                class: [
-                  "sidebar-item",
-                  { selected: !isWatch && category.value === "Все видео" },
+            ...(
+              [
+                ["feed", "home", "Обзор"],
+                ["saved", "bookmark", "Смотреть позже"],
+                ["topics", "grid", "Все темы"],
+              ] as const
+            ).map(([view, symbol, label]) =>
+              h(
+                "button",
+                {
+                  class: [
+                    "sidebar-item",
+                    {
+                      selected:
+                        !isWatch &&
+                        feedView.value === view &&
+                        category.value === "Все видео",
+                    },
+                  ],
+                  "aria-pressed":
+                    !isWatch &&
+                    feedView.value === view &&
+                    category.value === "Все видео",
+                  onClick: () => chooseView(view),
+                },
+                [
+                  icon(symbol),
+                  h("span", label),
+                  view === "saved" && saved.value.length
+                    ? h("span", { class: "topic-count" }, saved.value.length)
+                    : null,
                 ],
-                "aria-pressed": !isWatch && category.value === "Все видео",
-                onClick: () => selectCategory("Все видео"),
-              },
-              [icon("home"), "Все видео"],
+              ),
             ),
             h("div", { class: "sidebar-divider" }),
             topics.value.length
               ? [
-                  h("p", { class: "sidebar-label" }, "ТЕМЫ"),
-                  ...topics.value.map((name) =>
+                  h("p", { class: "sidebar-label" }, "ОТКРЫВАЙТЕ"),
+                  ...topics.value.slice(0, 7).map((name) =>
                     h(
                       "button",
                       {
@@ -552,7 +760,7 @@ export const PublicVideos = defineComponent({
               icon("plus"),
               h("span", ["Кабинет автора", h("small", "Управление видео")]),
             ]),
-            h("p", ["VidHarbor", h("span", "Видеоплатформа")]),
+            h("p", ["VidHarbor", h("span", "Видео. Люди. Идеи.")]),
           ]),
         ],
       );
@@ -567,7 +775,7 @@ export const PublicVideos = defineComponent({
             id: "video-search",
             ref: searchInput,
             type: "search",
-            placeholder: "Поиск видео",
+            placeholder: "Найти видео",
             maxlength: 200,
             value: query.value,
             onInput: (event: Event) => {
@@ -602,15 +810,6 @@ export const PublicVideos = defineComponent({
         ],
       );
     }
-    function topicArtwork(name: string) {
-      const sample = items.value.find(
-        (item) =>
-          item.category === name &&
-          item.thumbnail_url &&
-          !failedImages.value.has(item.id),
-      );
-      return sample ? cover(sample) : icon(topicIcon(name));
-    }
     function topicChips() {
       return h(
         "div",
@@ -620,19 +819,85 @@ export const PublicVideos = defineComponent({
             "button",
             {
               "aria-pressed": category.value === name,
-              "data-topic": name,
               onClick: () => selectCategory(name),
             },
-            [
-              h("span", { class: "topic-art", "aria-hidden": "true" }, [
-                topicArtwork(name),
-              ]),
-              h("span", { class: "topic-name" }, name),
-              icon("next", "topic-arrow"),
-            ],
+            name,
           ),
         ),
       );
+    }
+    function topicGrid() {
+      return h(
+        "div",
+        { class: "topic-grid" },
+        topics.value.map((name) => {
+          const videos = items.value.filter((item) => item.category === name);
+          const sample =
+            videos.find(
+              (item) => item.thumbnail_url && !failedImages.value.has(item.id),
+            ) || videos[0];
+          return h(
+            "button",
+            { class: "topic-tile", onClick: () => selectCategory(name) },
+            [
+              sample
+                ? h("span", { class: "topic-image" }, [cover(sample)])
+                : null,
+              h("span", { class: "topic-copy" }, [
+                h("strong", name),
+                h("small", videos.length + " видео"),
+              ]),
+              icon("arrow"),
+            ],
+          );
+        }),
+      );
+    }
+    function feed() {
+      const videos = filtered.value;
+      const firstBatch = largeCards.value ? 6 : 8;
+      const showTopics =
+        feedView.value === "feed" &&
+        !searched.value &&
+        category.value === "Все видео" &&
+        topics.value.length > 2 &&
+        videos.length > firstBatch;
+      return showTopics
+        ? [
+            h(
+              "ul",
+              { class: "video-grid" },
+              videos.slice(0, firstBatch).map((item) => card(item)),
+            ),
+            h(
+              "section",
+              { class: "discover-strip", "aria-label": "Откройте новые темы" },
+              [
+                h("div", { class: "section-heading" }, [
+                  h("h2", "У каждого — свой интерес"),
+                  h("button", { onClick: () => chooseView("topics") }, [
+                    "Все темы",
+                    icon("next"),
+                  ]),
+                ]),
+                topicGrid(),
+              ],
+            ),
+            h("div", { class: "section-heading feed-heading" }, [
+              h("h2", "Ещё видео"),
+              h("span", videos.length - firstBatch + " видео"),
+            ]),
+            h(
+              "ul",
+              { class: "video-grid" },
+              videos.slice(firstBatch).map((item) => card(item)),
+            ),
+          ]
+        : h(
+            "ul",
+            { class: "video-grid" },
+            videos.map((item) => card(item)),
+          );
     }
     function skeleton() {
       return h("div", { class: "catalog-loading", role: "status" }, [
@@ -697,7 +962,7 @@ export const PublicVideos = defineComponent({
                 },
                 [
                   h("span", { class: "brand-mark" }, [icon("brand")]),
-                  h("span", "VidHarbor"),
+                  h("span", "vidharbor"),
                 ],
               ),
             ]),
@@ -731,6 +996,16 @@ export const PublicVideos = defineComponent({
                       icon("back"),
                       "В каталог",
                     ]),
+                    recommendations.value[0]
+                      ? h(
+                          "a",
+                          {
+                            class: "next-video-link",
+                            href: recommendations.value[0].watch_url,
+                          },
+                          ["Следующее видео", icon("next")],
+                        )
+                      : null,
                   ]),
                   video.value
                     ? h("div", { class: "watch-layout" }, [
@@ -764,6 +1039,7 @@ export const PublicVideos = defineComponent({
                                 ]),
                               ]),
                               h("div", { class: "watch-actions" }, [
+                                saveButton(video.value, true),
                                 h(
                                   "button",
                                   { class: "action-button", onClick: share },
@@ -818,11 +1094,11 @@ export const PublicVideos = defineComponent({
                               },
                               [
                                 h("h2", { id: "related-title" }, [
-                                  "Смотрите также",
+                                  "Далее",
                                   h(
                                     "span",
                                     { class: "related-count" },
-                                    recommendations.value.length,
+                                    recommendations.value.length + " видео",
                                   ),
                                 ]),
                                 video.value.category
@@ -886,7 +1162,6 @@ export const PublicVideos = defineComponent({
                     : null,
                 ]
               : [
-                  topics.value.length ? topicChips() : null,
                   h(
                     "section",
                     {
@@ -902,7 +1177,13 @@ export const PublicVideos = defineComponent({
                             { id: "catalog-title" },
                             searched.value
                               ? "Результаты поиска"
-                              : category.value,
+                              : feedView.value === "saved"
+                                ? "Смотреть позже"
+                                : feedView.value === "topics"
+                                  ? "Откройте своё"
+                                  : category.value === "Все видео"
+                                    ? "Обзор"
+                                    : category.value,
                           ),
                           !busy.value
                             ? h(
@@ -920,6 +1201,21 @@ export const PublicVideos = defineComponent({
                             "aria-label": "Размер карточек",
                           },
                           [
+                            h(
+                              "button",
+                              {
+                                class: "preview-toggle",
+                                "aria-label": "Превью при наведении",
+                                "aria-pressed": previewsEnabled.value,
+                                title: "Превью при наведении",
+                                onClick: () => {
+                                  previewsEnabled.value =
+                                    !previewsEnabled.value;
+                                  stopPreview();
+                                },
+                              },
+                              [icon("play"), h("span", "Превью")],
+                            ),
                             h(
                               "button",
                               {
@@ -943,6 +1239,23 @@ export const PublicVideos = defineComponent({
                           ],
                         ),
                       ]),
+                      feedView.value === "saved"
+                        ? h(
+                            "p",
+                            { class: "feed-note" },
+                            "Видео, к которым хочется вернуться. Сохранены в этом браузере.",
+                          )
+                        : null,
+                      feedView.value === "topics"
+                        ? h(
+                            "p",
+                            { class: "feed-note" },
+                            "От музыки до новых мест. Выберите то, что интересно вам.",
+                          )
+                        : null,
+                      feedView.value === "feed" && topics.value.length
+                        ? topicChips()
+                        : null,
                       searched.value
                         ? h("div", { class: "search-summary" }, [
                             h("p", [
@@ -966,39 +1279,43 @@ export const PublicVideos = defineComponent({
                                 "Повторить",
                               ),
                             ])
-                          : filtered.value.length
-                            ? h(
-                                "ul",
-                                { class: "video-grid" },
-                                filtered.value.map((item) => card(item)),
-                              )
-                            : h("div", { class: "empty-state" }, [
-                                h("span", { class: "empty-icon" }, [
-                                  icon("search"),
+                          : feedView.value === "topics" && topics.value.length
+                            ? topicGrid()
+                            : filtered.value.length
+                              ? feed()
+                              : h("div", { class: "empty-state" }, [
+                                  h("span", { class: "empty-icon" }, [
+                                    icon("search"),
+                                  ]),
+                                  h(
+                                    "h2",
+                                    searched.value
+                                      ? "Ничего не найдено"
+                                      : feedView.value === "saved"
+                                        ? "Сохраните что-нибудь интересное"
+                                        : "Здесь пока нет видео",
+                                  ),
+                                  h(
+                                    "p",
+                                    searched.value
+                                      ? "Попробуйте другое название или вернитесь ко всем видео."
+                                      : feedView.value === "saved"
+                                        ? "Нажмите на закладку у ролика — он появится здесь."
+                                        : "Опубликованные ролики появятся здесь.",
+                                  ),
+                                  searched.value ||
+                                  category.value !== "Все видео" ||
+                                  feedView.value === "saved"
+                                    ? h(
+                                        "button",
+                                        {
+                                          class: "action-button primary-button",
+                                          onClick: reset,
+                                        },
+                                        "Показать все видео",
+                                      )
+                                    : null,
                                 ]),
-                                h(
-                                  "h2",
-                                  searched.value
-                                    ? "Ничего не найдено"
-                                    : "Здесь пока нет видео",
-                                ),
-                                h(
-                                  "p",
-                                  searched.value
-                                    ? "Попробуйте другое название или вернитесь ко всем видео."
-                                    : "Опубликованные ролики появятся здесь.",
-                                ),
-                                searched.value || category.value !== "Все видео"
-                                  ? h(
-                                      "button",
-                                      {
-                                        class: "action-button primary-button",
-                                        onClick: reset,
-                                      },
-                                      "Показать все видео",
-                                    )
-                                  : null,
-                              ]),
                     ],
                   ),
                 ],
