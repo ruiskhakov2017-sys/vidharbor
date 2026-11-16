@@ -28,9 +28,17 @@ type IconName =
   | "city"
   | "travel"
   | "architecture"
-  | "film";
+  | "film"
+  | "brand"
+  | "largeGrid"
+  | "speed"
+  | "quality";
 function icon(kind: IconName, className = "") {
   const paths = {
+    brand: "M3 5l5 14 5-14M16 5v14M16 12h5M21 5v14",
+    largeGrid: "M3 4h18v6H3zM3 14h18v6H3z",
+    speed: "M4 17a9 9 0 1 1 16 0M12 13l5-5M5 11l2 1m4-7v2m8 5 2-1",
+    quality: "m12 3 8 4v5c0 4-4 7-8 9-4-2-8-5-8-9V7zM8 12l3 3 5-6",
     menu: "M4 6h16M4 12h16M4 18h16",
     home: "m3 10 9-7 9 7v11h-6v-7H9v7H3z",
     grid: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z",
@@ -93,6 +101,8 @@ const Player = defineComponent({
     const element = ref<HTMLVideoElement>();
     const levels = ref<string[]>([]);
     const selection = ref(-1);
+    const speed = ref(1);
+    const posterFailed = ref(false);
     const active = ref(-1);
     const error = ref("");
     let engine: Hls | undefined;
@@ -110,10 +120,7 @@ const Player = defineComponent({
         engine.on(Engine.Events.MANIFEST_PARSED, (_, data) => {
           levels.value = data.levels.map(({ width, height }) => {
             const shortSide = Math.min(width, height);
-            const dimensions = width + "×" + height;
-            return [360, 480, 720].includes(shortSide)
-              ? shortSide + "p · " + dimensions
-              : dimensions;
+            return shortSide ? shortSide + "p" : width + "×" + height;
           });
         });
         engine.on(Engine.Events.LEVEL_SWITCHED, (_, data) => {
@@ -142,8 +149,23 @@ const Player = defineComponent({
       if (engine) engine.currentLevel = selection.value;
     }
 
+    function changeSpeed(event: Event) {
+      speed.value = Number((event.target as HTMLSelectElement).value);
+      if (element.value) element.value.playbackRate = speed.value;
+    }
     return () =>
       h("div", { class: "screening" }, [
+        props.poster && !posterFailed.value
+          ? h("div", { class: "player-ambient", "aria-hidden": "true" }, [
+              h("img", {
+                src: props.poster,
+                alt: "",
+                onError: () => {
+                  posterFailed.value = true;
+                },
+              }),
+            ])
+          : null,
         h("video", {
           class: "player",
           ref: element,
@@ -153,14 +175,49 @@ const Player = defineComponent({
           poster: props.poster,
           "aria-label": "Видеоплеер",
           "data-active-level": active.value,
+          onRatechange: () => {
+            speed.value = element.value?.playbackRate ?? 1;
+          },
         }),
         levels.value.length
-          ? h("label", { class: "quality" }, [
-              h("span", "Качество"),
-              h("select", { value: selection.value, onChange: changeQuality }, [
-                h("option", { value: -1 }, "Auto · автоматически"),
-                ...levels.value.map((label, index) =>
-                  h("option", { value: index, key: index }, label),
+          ? h("div", { class: "player-toolbar" }, [
+              h("label", { class: "playback-speed" }, [
+                icon("speed"),
+                h("span", "Скорость"),
+                h(
+                  "select",
+                  {
+                    value: speed.value,
+                    onChange: changeSpeed,
+                    "aria-label": "Скорость воспроизведения",
+                  },
+                  [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) =>
+                    h("option", { value: rate, key: rate }, rate + "×"),
+                  ),
+                ),
+              ]),
+              h("label", { class: "quality" }, [
+                icon("quality"),
+                h("span", "Качество"),
+                h(
+                  "select",
+                  {
+                    value: selection.value,
+                    onChange: changeQuality,
+                    "aria-label": "Качество воспроизведения",
+                  },
+                  [
+                    h(
+                      "option",
+                      { value: -1 },
+                      active.value >= 0
+                        ? "Auto · " + levels.value[active.value]
+                        : "Auto · автоматически",
+                    ),
+                    ...levels.value.map((label, index) =>
+                      h("option", { value: index, key: index }, label),
+                    ),
+                  ],
                 ),
               ]),
             ])
@@ -187,6 +244,22 @@ export const PublicVideos = defineComponent({
     const desktop = window.matchMedia("(min-width: 1100px)");
     const menuOpen = ref(desktop.matches && !isWatch);
     const menuButton = ref<HTMLButtonElement>();
+    const searchInput = ref<HTMLInputElement>();
+    const largeCards = ref(false);
+    try {
+      largeCards.value =
+        localStorage.getItem("vidharbor.public.largeCards") === "true";
+    } catch {
+      /* Storage can be unavailable. */
+    }
+    function setCardSize(large: boolean) {
+      largeCards.value = large;
+      try {
+        localStorage.setItem("vidharbor.public.largeCards", String(large));
+      } catch {
+        /* The view still works without persistence. */
+      }
+    }
     const cinema = ref(false);
     const copied = ref("");
     const relatedTopic = ref(false);
@@ -269,6 +342,20 @@ export const PublicVideos = defineComponent({
       menuOpen.value = false;
     }
     function escapeMenu(event: KeyboardEvent) {
+      const editing =
+        event.target instanceof Element &&
+        event.target.closest("input,textarea,select,[contenteditable]");
+      if (
+        event.key === "/" &&
+        !editing &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        searchInput.value?.focus();
+        return;
+      }
       if (event.key === "Escape" && menuOpen.value) {
         menuOpen.value = false;
         menuButton.value?.focus();
@@ -298,6 +385,11 @@ export const PublicVideos = defineComponent({
       query.value = "";
       category.value = "Все видео";
       void load();
+    }
+    function clearSearch() {
+      query.value = "";
+      if (!isWatch) reset();
+      searchInput.value?.focus();
     }
     function selectCategory(name: string) {
       if (isWatch) {
@@ -332,8 +424,8 @@ export const PublicVideos = defineComponent({
             },
           })
         : h("div", { class: "cover-fallback", "aria-hidden": "true" }, [
-            icon("play"),
-            h("span", "VidHarbor"),
+            icon("brand"),
+            h("span", "Видео без обложки"),
           ]);
     }
     function avatar(item: PublicVideo) {
@@ -356,7 +448,10 @@ export const PublicVideos = defineComponent({
                 )
               : null,
             h("span", { class: "hover-play", "aria-hidden": "true" }, [
-              icon("play"),
+              h("span", { class: "card-play-action" }, [
+                icon("play"),
+                h("span", "Смотреть"),
+              ]),
             ]),
           ]),
           h("div", { class: "card-info" }, [
@@ -422,7 +517,16 @@ export const PublicVideos = defineComponent({
                         "aria-pressed": !isWatch && category.value === name,
                         onClick: () => selectCategory(name),
                       },
-                      [icon(topicIcon(name)), name],
+                      [
+                        icon(topicIcon(name)),
+                        name,
+                        h(
+                          "span",
+                          { class: "topic-count", "aria-hidden": "true" },
+                          items.value.filter((item) => item.category === name)
+                            .length,
+                        ),
+                      ],
                     ),
                   ),
                 ]
@@ -431,7 +535,7 @@ export const PublicVideos = defineComponent({
           h("div", { class: "sidebar-bottom" }, [
             h("a", { href: "/", class: "sidebar-item" }, [
               icon("plus"),
-              "Кабинет автора",
+              h("span", ["Кабинет автора", h("small", "Управление видео")]),
             ]),
             h("p", ["VidHarbor", h("span", "Видеоплатформа")]),
           ]),
@@ -446,6 +550,7 @@ export const PublicVideos = defineComponent({
           h("label", { for: "video-search", class: "sr-only" }, "Поиск видео"),
           h("input", {
             id: "video-search",
+            ref: searchInput,
             type: "search",
             placeholder: "Поиск видео",
             maxlength: 200,
@@ -454,6 +559,22 @@ export const PublicVideos = defineComponent({
               query.value = (event.target as HTMLInputElement).value;
             },
           }),
+          query.value
+            ? h(
+                "button",
+                {
+                  class: "search-clear",
+                  type: "button",
+                  "aria-label": "Очистить поиск",
+                  onClick: clearSearch,
+                },
+                [icon("close")],
+              )
+            : h(
+                "kbd",
+                { class: "search-shortcut", "aria-hidden": "true" },
+                "/",
+              ),
           h(
             "button",
             {
@@ -477,10 +598,28 @@ export const PublicVideos = defineComponent({
               "aria-pressed": category.value === name,
               onClick: () => selectCategory(name),
             },
-            name,
+            [icon(topicIcon(name)), name],
           ),
         ),
       );
+    }
+    function skeleton() {
+      return h("div", { class: "catalog-loading", role: "status" }, [
+        h("span", { class: "sr-only" }, "Загружаем видео…"),
+        h(
+          "div",
+          { class: "skeleton-grid", "aria-hidden": "true" },
+          Array.from({ length: 9 }, (_, index) =>
+            h("div", { key: index, class: "skeleton-card" }, [
+              h("div", { class: "skeleton-image" }),
+              h("div", { class: "skeleton-info" }, [
+                h("i"),
+                h("div", [h("span"), h("span")]),
+              ]),
+            ]),
+          ),
+        ),
+      ]);
     }
     return () =>
       h(
@@ -489,7 +628,11 @@ export const PublicVideos = defineComponent({
           class: [
             "public-site",
             isWatch ? "watch-view" : "catalog-view",
-            { "nav-open": menuOpen.value, "cinema-mode": cinema.value },
+            {
+              "nav-open": menuOpen.value,
+              "cinema-mode": cinema.value,
+              "large-cards": largeCards.value,
+            },
           ],
         },
         [
@@ -522,7 +665,7 @@ export const PublicVideos = defineComponent({
                   "aria-label": "VidHarbor — каталог",
                 },
                 [
-                  h("span", { class: "brand-mark" }, [icon("play")]),
+                  h("span", { class: "brand-mark" }, [icon("brand")]),
                   h("span", "VidHarbor"),
                 ],
               ),
@@ -643,11 +786,14 @@ export const PublicVideos = defineComponent({
                                 "aria-labelledby": "related-title",
                               },
                               [
-                                h(
-                                  "h2",
-                                  { id: "related-title" },
+                                h("h2", { id: "related-title" }, [
                                   "Смотрите также",
-                                ),
+                                  h(
+                                    "span",
+                                    { class: "related-count" },
+                                    recommendations.value.length,
+                                  ),
+                                ]),
                                 video.value.category
                                   ? h("div", { class: "related-chips" }, [
                                       h(
@@ -719,18 +865,52 @@ export const PublicVideos = defineComponent({
                     },
                     [
                       h("div", { class: "catalog-heading" }, [
+                        h("div", { class: "catalog-title-group" }, [
+                          h(
+                            "h1",
+                            { id: "catalog-title" },
+                            searched.value
+                              ? "Результаты поиска"
+                              : category.value,
+                          ),
+                          !busy.value
+                            ? h(
+                                "span",
+                                { class: "video-count" },
+                                filtered.value.length + " видео",
+                              )
+                            : null,
+                        ]),
                         h(
-                          "h1",
-                          { id: "catalog-title" },
-                          searched.value ? "Результаты поиска" : category.value,
+                          "div",
+                          {
+                            class: "view-controls",
+                            role: "group",
+                            "aria-label": "Размер карточек",
+                          },
+                          [
+                            h(
+                              "button",
+                              {
+                                "aria-label": "Обычные карточки",
+                                "aria-pressed": !largeCards.value,
+                                title: "Обычные карточки",
+                                onClick: () => setCardSize(false),
+                              },
+                              [icon("grid")],
+                            ),
+                            h(
+                              "button",
+                              {
+                                "aria-label": "Крупные карточки",
+                                "aria-pressed": largeCards.value,
+                                title: "Крупные карточки",
+                                onClick: () => setCardSize(true),
+                              },
+                              [icon("largeGrid")],
+                            ),
+                          ],
                         ),
-                        !busy.value
-                          ? h(
-                              "span",
-                              { class: "video-count" },
-                              filtered.value.length + " видео",
-                            )
-                          : null,
                       ]),
                       searched.value
                         ? h("div", { class: "search-summary" }, [
@@ -745,11 +925,7 @@ export const PublicVideos = defineComponent({
                           ])
                         : null,
                       busy.value
-                        ? h(
-                            "div",
-                            { class: "loading-state", role: "status" },
-                            "Загружаем видео…",
-                          )
+                        ? skeleton()
                         : error.value
                           ? h("div", { class: "error-state" }, [
                               h("p", { role: "alert" }, error.value),
