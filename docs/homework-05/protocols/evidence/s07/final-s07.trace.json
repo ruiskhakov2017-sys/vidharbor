@@ -1,0 +1,378 @@
+{
+  "batches": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "upload"
+            }
+          }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "vidharbor"
+          },
+          "spans": [
+            {
+              "traceId": "gvd/lxNd7siBOmTXyLq4OA==",
+              "spanId": "s1uCt1dlvMQ=",
+              "flags": 256,
+              "name": "HTTP POST /api/uploads/<uuid:upload_id>/complete",
+              "kind": "SPAN_KIND_SERVER",
+              "startTimeUnixNano": "1794852835308240130",
+              "endTimeUnixNano": "1794852835383876065",
+              "attributes": [
+                {
+                  "key": "vidharbor.request_id",
+                  "value": {
+                    "stringValue": "2ad4fec3-6cf0-4ab4-939d-559c4d8a1bd3"
+                  }
+                },
+                {
+                  "key": "vidharbor.upload_id",
+                  "value": {
+                    "stringValue": "151cbedc-ef12-4405-bebc-cc33ef401938"
+                  }
+                },
+                {
+                  "key": "vidharbor.correlation_id",
+                  "value": {
+                    "stringValue": "151cbedc-ef12-4405-bebc-cc33ef401938"
+                  }
+                },
+                {
+                  "key": "http.request.method",
+                  "value": {
+                    "stringValue": "POST"
+                  }
+                },
+                {
+                  "key": "http.route",
+                  "value": {
+                    "stringValue": "api/uploads/<uuid:upload_id>/complete"
+                  }
+                },
+                {
+                  "key": "http.response.status_code",
+                  "value": {
+                    "intValue": "200"
+                  }
+                }
+              ],
+              "status": {}
+            },
+            {
+              "traceId": "gvd/lxNd7siBOmTXyLq4OA==",
+              "spanId": "hALvi0HSf3A=",
+              "parentSpanId": "s1uCt1dlvMQ=",
+              "flags": 256,
+              "name": "job.create",
+              "kind": "SPAN_KIND_INTERNAL",
+              "startTimeUnixNano": "1794852835374720778",
+              "endTimeUnixNano": "1794852835382220716",
+              "attributes": [
+                {
+                  "key": "vidharbor.request_id",
+                  "value": {
+                    "stringValue": "2ad4fec3-6cf0-4ab4-939d-559c4d8a1bd3"
+                  }
+                },
+                {
+                  "key": "vidharbor.upload_id",
+                  "value": {
+                    "stringValue": "151cbedc-ef12-4405-bebc-cc33ef401938"
+                  }
+                },
+                {
+                  "key": "vidharbor.correlation_id",
+                  "value": {
+                    "stringValue": "151cbedc-ef12-4405-bebc-cc33ef401938"
+                  }
+                },
+                {
+                  "key": "vidharbor.video_id",
+                  "value": {
+                    "stringValue": "eb66e8b8-de8b-49e6-ba39-f5c047ee34e3"
+                  }
+                },
+                {
+                  "key": "vidharbor.job_id",
+                  "value": {
+                    "stringValue": "cc8ae519-b2b9-4eab-a061-761805edc316"
+                  }
+                },
+                {
+                  "key": "vidharbor.message_id",
+                  "value": {
+                    "stringValue": "a4eaf450-81cb-4ef3-bf7a-90d1c08fbc25"
+                  }
+                }
+              ],
+              "status": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "relay"
+            }
+          }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "vidharbor"
+          },
+          "spans": [
+            {
+              "traceId": "gvd/lxNd7siBOmTXyLq4OA==",
+              "spanId": "46OWk+xcNQA=",
+              "parentSpanId": "hALvi0HSf3A=",
+              "flags": 768,
+              "name": "outbox.publish",
+              "kind": "SPAN_KIND_PRODUCER",
+              "startTimeUnixNano": "1794852835565428880",
+              "endTimeUnixNano": "1794852835569778680",
+              "attributes": [
+                {
+                  "key": "vidharbor.job_id",
+                  "value": {
+                    "stringValue": "cc8ae519-b2b9-4eab-a061-761805edc316"
+                  }
+                },
+                {
+                  "key": "vidharbor.message_id",
+                  "value": {
+                    "stringValue": "a4eaf450-81cb-4ef3-bf7a-90d1c08fbc25"
+                  }
+                },
+                {
+                  "key": "vidharbor.video_id",
+                  "value": {
+                    "stringValue": "eb66e8b8-de8b-49e6-ba39-f5c047ee34e3"
+                  }
+                },
+                {
+                  "key": "vidharbor.correlation_id",
+                  "value": {
+                    "stringValue": "151cbedc-ef12-4405-bebc-cc33ef401938"
+                  }
+                },
+                {
+                  "key": "vidharbor.upload_id",
+                  "value": {
+                    "stringValue": "151cbedc-ef12-4405-bebc-cc33ef401938"
+                  }
+                }
+              ],
+              "status": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "worker"
+            }
+          }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "vidharbor"
+          },
+          "spans": [
+            {
+              "traceId": "gvd/lxNd7siBOmTXyLq4OA==",
+              "spanId": "Xb7yQd277Qc=",
+              "parentSpanId": "46OWk+xcNQA=",
+              "flags": 768,
+              "name": "worker.process",
+              "kind": "SPAN_KIND_CONSUMER",
+              "startTimeUnixNano": "1794852835569880085",
+              "endTimeUnixNano": "1794852837819970265",
+              "attributes": [
+                {
+                  "key": "vidharbor.correlation_id",
+                  "value": {
+                    "stringValue": "151cbedc-ef12-4405-bebc-cc33ef401938"
+                  }
+                },
+                {
+                  "key": "vidharbor.upload_id",
+                  "value": {
+                    "stringValue": "151cbedc-ef12-4405-bebc-cc33ef401938"
+                  }
+                },
+                {
+                  "key": "vidharbor.job_id",
+                  "value": {
+                    "stringValue": "cc8ae519-b2b9-4eab-a061-761805edc316"
+                  }
+                },
+                {
+                  "key": "vidharbor.video_id",
+                  "value": {
+                    "stringValue": "eb66e8b8-de8b-49e6-ba39-f5c047ee34e3"
+                  }
+                },
+                {
+                  "key": "vidharbor.message_id",
+                  "value": {
+                    "stringValue": "a4eaf450-81cb-4ef3-bf7a-90d1c08fbc25"
+                  }
+                },
+                {
+                  "key": "vidharbor.attempt",
+                  "value": {
+                    "intValue": "1"
+                  }
+                },
+                {
+                  "key": "vidharbor.generation",
+                  "value": {
+                    "intValue": "1"
+                  }
+                }
+              ],
+              "status": {}
+            },
+            {
+              "traceId": "gvd/lxNd7siBOmTXyLq4OA==",
+              "spanId": "I5otQStfOls=",
+              "parentSpanId": "Xb7yQd277Qc=",
+              "flags": 256,
+              "name": "ffmpeg.encode",
+              "kind": "SPAN_KIND_INTERNAL",
+              "startTimeUnixNano": "1794852835597082702",
+              "endTimeUnixNano": "1794852837784460856",
+              "attributes": [
+                {
+                  "key": "vidharbor.correlation_id",
+                  "value": {
+                    "stringValue": "151cbedc-ef12-4405-bebc-cc33ef401938"
+                  }
+                },
+                {
+                  "key": "vidharbor.upload_id",
+                  "value": {
+                    "stringValue": "151cbedc-ef12-4405-bebc-cc33ef401938"
+                  }
+                },
+                {
+                  "key": "vidharbor.job_id",
+                  "value": {
+                    "stringValue": "cc8ae519-b2b9-4eab-a061-761805edc316"
+                  }
+                },
+                {
+                  "key": "vidharbor.video_id",
+                  "value": {
+                    "stringValue": "eb66e8b8-de8b-49e6-ba39-f5c047ee34e3"
+                  }
+                },
+                {
+                  "key": "vidharbor.message_id",
+                  "value": {
+                    "stringValue": "a4eaf450-81cb-4ef3-bf7a-90d1c08fbc25"
+                  }
+                },
+                {
+                  "key": "vidharbor.attempt",
+                  "value": {
+                    "intValue": "1"
+                  }
+                },
+                {
+                  "key": "vidharbor.generation",
+                  "value": {
+                    "intValue": "1"
+                  }
+                }
+              ],
+              "status": {}
+            },
+            {
+              "traceId": "gvd/lxNd7siBOmTXyLq4OA==",
+              "spanId": "lNTi1pxldU8=",
+              "parentSpanId": "Xb7yQd277Qc=",
+              "flags": 256,
+              "name": "video.publish",
+              "kind": "SPAN_KIND_INTERNAL",
+              "startTimeUnixNano": "1794852837812310273",
+              "endTimeUnixNano": "1794852837817135009",
+              "attributes": [
+                {
+                  "key": "vidharbor.correlation_id",
+                  "value": {
+                    "stringValue": "151cbedc-ef12-4405-bebc-cc33ef401938"
+                  }
+                },
+                {
+                  "key": "vidharbor.upload_id",
+                  "value": {
+                    "stringValue": "151cbedc-ef12-4405-bebc-cc33ef401938"
+                  }
+                },
+                {
+                  "key": "vidharbor.job_id",
+                  "value": {
+                    "stringValue": "cc8ae519-b2b9-4eab-a061-761805edc316"
+                  }
+                },
+                {
+                  "key": "vidharbor.video_id",
+                  "value": {
+                    "stringValue": "eb66e8b8-de8b-49e6-ba39-f5c047ee34e3"
+                  }
+                },
+                {
+                  "key": "vidharbor.message_id",
+                  "value": {
+                    "stringValue": "a4eaf450-81cb-4ef3-bf7a-90d1c08fbc25"
+                  }
+                },
+                {
+                  "key": "vidharbor.attempt",
+                  "value": {
+                    "intValue": "1"
+                  }
+                },
+                {
+                  "key": "vidharbor.generation",
+                  "value": {
+                    "intValue": "1"
+                  }
+                },
+                {
+                  "key": "vidharbor.event_id",
+                  "value": {
+                    "stringValue": "da1134e4-79fb-49aa-addc-2a916c5a4497"
+                  }
+                }
+              ],
+              "status": {}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

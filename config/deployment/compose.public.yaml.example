@@ -1,0 +1,15 @@
+# OFFLINE TEMPLATE. Compose paths resolve relative to the FIRST file (compose.yaml).
+# Copy to a private reviewed override; replace placeholders before any startup.
+services:
+  api:
+    environment:
+      DJANGO_SETTINGS_MODULE: vidharbor.public_settings
+      VIDHARBOR_PUBLIC_HOST: ${VIDHARBOR_PUBLIC_HOST:?Choose the public DNS hostname}
+    volumes:
+      - ./config/deployment/public_settings.py:/app/vidharbor/public_settings.py:ro
+  upload:
+    environment:
+      DJANGO_SETTINGS_MODULE: vidharbor.public_settings
+      VIDHARBOR_PUBLIC_HOST: ${VIDHARBOR_PUBLIC_HOST:?Choose the public DNS hostname}
+    volumes:
+      - ./config/deployment/public_settings.py:/app/vidharbor/public_settings.py:ro

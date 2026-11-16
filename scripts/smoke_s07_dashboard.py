@@ -42,12 +42,18 @@ def main():
         expect(page.get_by_text('Current processing states',exact=True).filter(visible=True).first).to_be_visible(timeout=45000)
         page.wait_for_timeout(7000)
         assert queries and not errors,(queries,errors)
-        assert page.locator('canvas').count()>0,'Dashboard graph canvas was not rendered'
+        panel=page.get_by_text('Current processing states',exact=True).filter(visible=True).first
+        expect(panel).to_be_visible(timeout=15000)
+        canvas=page.locator('canvas').filter(visible=True).first
+        expect(canvas).to_be_visible(timeout=15000)
+        box=canvas.bounding_box();assert box and box['width']>100 and box['height']>50,'Graph canvas has no visible area'
         assert not external,('Unexpected external browser request',external)
         args.report.parent.mkdir(parents=True,exist_ok=True)
-        page.screenshot(path=str(args.report.with_suffix('.png')),full_page=True)
+        # Grafana virtualizes panels when a full-page capture resizes the viewport.
+        # Capture the verified visible viewport instead of an empty virtual grid.
+        page.screenshot(path=str(args.report.with_suffix('.png')),full_page=False,animations='disabled')
         args.report.write_text(json.dumps({'status':'PASS','browser':browser.version,'datasource_queries':len(queries),
-            'query_errors':errors,'external_requests':external,'dashboard':'vidharbor-overview'},indent=2)+'\n')
+            'query_errors':errors,'external_requests':external,'dashboard':'vidharbor-overview','visible_canvas':box},indent=2)+'\n')
         print(args.report.read_text());browser.close()
 
 

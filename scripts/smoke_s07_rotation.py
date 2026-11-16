@@ -14,6 +14,10 @@ def main():
     project=os.environ.get('COMPOSE_PROJECT_NAME','');assert project.startswith('vidharbor-s07-')
     config=json.loads(compose('config','--format','json'))
     expected={'max-size':'1m','max-file':'3'}
+    for service in config['services'].values():
+        assert all(port.get('host_ip')=='127.0.0.1' for port in service.get('ports',[])), 'Unexpected public port'
+    for name in ('api','upload','relay','worker','db','rabbitmq'):
+        assert not config['services'][name].get('ports'), 'A private component was published'
     for service in ('api','upload','relay','worker','db','rabbitmq','web','tempo','prometheus','grafana'):
         assert config['services'][service]['logging']=={'driver':'json-file','options':expected},service
     image=json.loads(subprocess.check_output(['docker','inspect',compose('ps','-q','api').strip()]))[0]['Image']
@@ -29,7 +33,7 @@ def main():
         info=json.loads(subprocess.check_output(['docker','inspect',cid]))[0]
         directory=str(Path(info['LogPath']).parent)
         files=subprocess.check_output(['docker','run','--rm','--network','none','--read-only','--mount',
-            'type=bind,source='+directory+',target=/probe,readonly','busybox:1.37','sh','-c',
+            'type=bind,source='+directory+',target=/probe,readonly',config['services']['observability-init']['image'],'sh','-c',
             'find /probe -maxdepth 1 -name "*-json.log*"'],text=True).splitlines()
         assert 2<=len(files)<=3,files
         result={'status':'PASS','configured_app_bounds':expected,'generated_lines':6000,'retained_lines':len(lines),'retained_files':len(files),

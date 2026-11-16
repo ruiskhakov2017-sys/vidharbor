@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "nginx_syntax": "PASS with temporary synthetic self-signed cert, network none, no ports",
+  "public_dns_tls_handshake": "Not Run",
+  "real_n8n_sheets": "Not Run",
+  "fixture_event_id": "11111111-1111-4111-8111-111111111111"
+}

@@ -1,0 +1,108 @@
+name: S07 observability
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: s07-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  observability:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      COMPOSE_PROJECT_NAME: vidharbor-s07-ci
+      COMPOSE_FILE: compose.yaml:compose.observability.yaml
+      COMPOSE_PROFILES: observability
+      VIDHARBOR_PORT: "8120"
+      VIDHARBOR_PUBLIC_BASE_URL: http://127.0.0.1:8120
+      VIDHARBOR_SECRETS_DIR: /tmp/vidharbor-s07-secrets
+      NO_PROXY: localhost,127.0.0.1,api,upload,db,rabbitmq,tempo,prometheus,grafana
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Prepare isolated temporary credentials
+        run: |
+          umask 077
+          mkdir -p "$VIDHARBOR_SECRETS_DIR" .s07-evidence
+          for name in django_secret_key postgres_password rabbitmq_password telemetry_metrics_token grafana_admin_password; do
+            openssl rand -hex 32 > "$VIDHARBOR_SECRETS_DIR/$name"
+            chmod 0444 "$VIDHARBOR_SECRETS_DIR/$name"
+          done
+
+      - name: Validate, build and start optional profile
+        run: |
+          docker compose --env-file .env.example config --quiet
+          docker compose --env-file .env.example up --build -d --wait --wait-timeout 240
+          docker compose --env-file .env.example exec -T prometheus promtool check config /etc/prometheus/prometheus.yml
+          docker compose --env-file .env.example exec -T prometheus promtool check rules /etc/prometheus/alerts.yml
+
+      - name: Generate a small valid test fixture
+        run: |
+          docker compose --env-file .env.example exec -T upload ffmpeg -v error \
+            -f lavfi -i testsrc2=size=640x360:rate=24 -f lavfi -i sine=frequency=440 \
+            -t 3 -c:v libx264 -preset ultrafast -threads 1 -c:a aac -f matroska pipe:1 \
+            > "$RUNNER_TEMP/s07-fixture.mkv"
+
+      - name: Verify actual logs, trace, metrics, dashboard query and recovery
+        run: |
+          python3 scripts/smoke_s07.py --monitoring --fixture "$RUNNER_TEMP/s07-fixture.mkv" \
+            --report .s07-evidence/acceptance.json
+
+      - name: Render provisioned dashboard in system Chrome
+        run: |
+          python3 -m venv "$RUNNER_TEMP/s07-browser"
+          "$RUNNER_TEMP/s07-browser/bin/pip" install --disable-pip-version-check --only-binary=:all: -r scripts/requirements-smoke.txt
+          "$RUNNER_TEMP/s07-browser/bin/python" scripts/smoke_s07_dashboard.py --report .s07-evidence/dashboard.json
+
+      - name: Verify real log rotation
+        run: python3 scripts/smoke_s07_rotation.py --report .s07-evidence/rotation.json
+
+      - name: Static checks of new Python and dashboard
+        run: |
+          python3 -m compileall -q api/vidharbor/telemetry.py api/vidharbor/metrics.py scripts/smoke_s07*.py
+          python3 -m json.tool config/observability/dashboards/vidharbor.json > /dev/null
+          git diff --check
+
+      - name: Check disabled public templates offline
+        run: |
+          python3 scripts/check_public_templates.py --nginx-image "$(docker compose --env-file .env.example images -q web)" --report .s07-evidence/public-templates.json
+          install -m 0644 config/deployment/public_settings.py "$RUNNER_TEMP/public_settings.py"
+          install -m 0644 config/integrations/video-ready.example.json "$RUNNER_TEMP/video-ready.json"
+          docker compose --env-file .env.example run --rm --no-deps \
+            -v "$RUNNER_TEMP/public_settings.py:/review/public_settings.py:ro" \
+            -v "$RUNNER_TEMP/video-ready.json:/review/video-ready.json:ro" \
+            upload python - --settings-file /review/public_settings.py --payload /review/video-ready.json < scripts/check_public_settings.py
+
+      - name: Check evidence before upload
+        id: safe_evidence
+        if: always()
+        run: python3 scripts/check_s07_evidence.py .s07-evidence "$VIDHARBOR_SECRETS_DIR"
+
+      - name: Upload only checked diagnostic evidence
+        if: always() && steps.safe_evidence.outcome == 'success'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: s07-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .s07-evidence/
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Always remove this job's stack, volumes and credentials
+        if: always()
+        run: |
+          cleanup_status=0
+          if [ -f compose.yaml ]; then
+            docker compose --env-file .env.example down --volumes --remove-orphans || cleanup_status=$?
+          fi
+          rm -rf -- "$VIDHARBOR_SECRETS_DIR"
+          rm -f -- "$RUNNER_TEMP/s07-fixture.mkv"
+          exit "$cleanup_status"

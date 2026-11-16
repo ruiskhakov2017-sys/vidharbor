@@ -1,0 +1,1 @@
+PASS: synthetic S06 payload; exact host/origin/secure cookies/proxy; 4 invalid host inputs rejected; no DNS/HTTP

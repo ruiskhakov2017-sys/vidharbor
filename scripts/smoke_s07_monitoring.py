@@ -146,6 +146,16 @@ def verify_monitoring(opener,guest,base,csrf,make_upload,created,output):
     compose('stop','rabbitmq')
     try:
         wait_for(lambda:query('sum(vidharbor_backend_up{backend="rabbitmq"})')==0,'Broker outage must be visible')
+        def components_unready():
+            values=database("import json,urllib.request,urllib.error; result={};\n"
+                "for service in ('relay','worker'):\n"
+                " for kind in ('live','ready'):\n"
+                "  try: response=urllib.request.urlopen(f'http://{service}:9100/health/{kind}',timeout=3); status=response.status; response.close()\n"
+                "  except urllib.error.HTTPError as error: status=error.code; error.close()\n"
+                "  result[service+'/'+kind]=status\n"
+                "print(json.dumps(result))")
+            return all(values[service+'/live']==200 and values[service+'/ready']==503 for service in ('relay','worker'))
+        wait_for(components_unready,'Relay/worker live=200 and ready=503 during broker outage')
         http(guest,base+'/media/'+created['video_id']+'/master.m3u8')
         assert original()==baseline
         waiting,queued_headers=make_upload('Broker recovery '+uuid.uuid4().hex)
@@ -167,7 +177,7 @@ def verify_monitoring(opener,guest,base,csrf,make_upload,created,output):
         {span['name'] for span in spans(json.loads(http(guest,tempo+'/api/traces/'+queued_trace,headers={'Accept':'application/json'})[0]))},
         'Completed real trace after delayed outbox delivery')
     assert original()==baseline
-    result['broker_outage']={'status':'PASS','alert_fired':True,'original_unchanged':True,'queued_job':waiting['job_id'],
+    result['broker_outage']={'status':'PASS','alert_fired':True,'component_live_200_ready_503':True,'original_unchanged':True,'queued_job':waiting['job_id'],
                             'trace_id':queued_trace,'durable_outbox_observed':True,'trace_context_recovered':True}
     result['real_n8n_sheets']='Not Run'
     return result

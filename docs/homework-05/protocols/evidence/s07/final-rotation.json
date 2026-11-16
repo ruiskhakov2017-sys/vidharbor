@@ -1,0 +1,11 @@
+{
+  "status": "PASS",
+  "configured_app_bounds": {
+    "max-size": "1m",
+    "max-file": "3"
+  },
+  "generated_lines": 6000,
+  "retained_lines": 2155,
+  "retained_files": 3,
+  "scope": "same driver/options on a disposable probe; existing application logs were not flooded"
+}

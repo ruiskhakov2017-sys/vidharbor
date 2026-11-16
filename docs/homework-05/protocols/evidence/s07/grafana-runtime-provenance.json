@@ -1,0 +1,7 @@
+{
+  "version": "12.4.15",
+  "source": "https://dl.grafana.com/oss/release/grafana-12.4.15.linux-amd64-musl.tar.gz",
+  "official_archive_sha256": "7e93f632ee9629f920231f52d98a86cba441a81dd0f3914d7a074b541e13ee06",
+  "binary_sha256": "967f6cfe5b54b8eae59f82b7cb3ed9d4084a282a6777e8de43f0e69fd5f1e082",
+  "mode": "Managed cloud VFS: checked official musl release mounted read-only in cached Alpine image; standard Compose/CI use pinned official Docker image."
+}

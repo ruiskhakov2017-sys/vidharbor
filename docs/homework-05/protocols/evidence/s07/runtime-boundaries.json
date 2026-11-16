@@ -1,0 +1,15 @@
+{
+  "storage_driver": "vfs",
+  "cgroup_driver": "none",
+  "cpu_ram_caps_enforced": false,
+  "process_rss_bytes": {
+    "prometheus": 103895040.0,
+    "grafana": 240013312.0,
+    "tempo": 153800704.0
+  },
+  "prometheus_retention": {
+    "storage.tsdb.retention.size": "128MiB",
+    "storage.tsdb.retention.time": "6h"
+  },
+  "public_deployment": "Not Run"
+}

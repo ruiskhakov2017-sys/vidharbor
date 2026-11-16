@@ -1,6 +1,6 @@
 # Эксплуатация учебного VidHarbor
 
-Проверено на облачном Docker/Compose, 2026-11-15. [Протокол](protocols/s05-s08-completion.md), [backup/restore](backup-restore.md). Production deployment, DNS/TLS, сервер и действующие n8n/Sheets в этой работе не изменялись.
+S05–S08 опубликованы в main 73db264; S07 дополнен и проверен в отдельной облачной ветке, 2026-11-16. [Протокол](protocols/s05-s08-completion.md), [backup/restore](backup-restore.md). Production deployment, DNS/TLS, сервер и действующие n8n/Sheets в этой работе не изменялись.
 
 ## Запуск
 
@@ -45,7 +45,7 @@ docker compose --env-file .env.example run --rm --no-deps upload python manage.p
 
 Тесты создают отдельную test DB; для регрессии с отключением broker/БД использовать отдельный тестовый project. S01 и S02 smoke меняют состояние зависимостей/очереди, их нельзя направлять на действующий demo с работающим worker без предусмотренной изоляции. Текущий `smoke_s02.py` требует работающий relay и остановленный worker: сверяет одну Job/Outbox, исходные ID/хэш, реальный persistent payload в RabbitMQ и подтверждённый sent_at; сообщения возвращаются nack/requeue. Историческое ожидание неотправленной Outbox устранено, поскольку оно конфликтовало с relay. После сценария восстановить только первоначально работающие сервисы. [Команды регрессии](protocols/s05-s08-completion.md#проверки-и-воспроизведение).
 
-S07 ещё не реализован: исходный согласованный `implementation-plan-s07.md` из 2d65cb9 ожидается от владельца. JSON diagnostics текущих компонентов и сохранённые ID не заменяют P06–P10, OpenTelemetry/Tempo, Prometheus/Grafana, ротацию и панель. Отдельные live/ready уже есть; полный мониторинг всех компонентов и alerts не заявлены.
+S07 реализован отдельно по явному заданию P06–P10: JSON/correlation, реальные OTel/Tempo traces, Prometheus/Grafana и ограниченное хранение. [Фактические проверки](protocols/s07-observability.md); исходный план 2d65cb9 не найден и ещё требует сверки. Публичная эксплуатация и GitHub CI новой ветки Not Run.
 
 Повтор обработки: UI привязывает запрос к конкретному failed_job_id. При потере ответа повторить тот же запрос; не создавать новый цикл для другого задания автоматически. Timeout ffprobe отдаёт временную ошибку 503 с Retry-After, не расходуя generation. Исправить причину FFmpeg/места и повторить из сохранённого оригинала. Не редактировать Job/Attempt вручную для сброса истории.
 
@@ -76,3 +76,40 @@ docker compose --env-file .env.example down
 ```
 
 `down --volumes` разрешён только для заведомо одноразового тестового/CI project после сохранения доказательств; на demo и восстановленных данных не применять. В GitHub Actions always-cleanup удаляет только созданный job-ом стек и его тома. История незавершённого S06 merge в другом worktree не является частью эксплуатационной процедуры и не меняется.
+
+## Наблюдаемость S07
+
+Обычный `compose.yaml` не включает exporter/collector; JSON логи и Docker json-file rotation1m×3 включены без дополнительных сервисов. Для opt-in на **отдельном учебном** project сохранить существующие секреты и создать только отсутствующие `telemetry_metrics_token`/`grafana_admin_password` (случайные≥32 байт) по той же процедуре выше. Не печатать значения. В managed cloud public config bind mounts должны читаться service UID, secret directory остаётся0700.
+
+```bash
+# Из корня repo; project/port/secrets уже выбраны для этого стенда.
+docker compose --env-file .env.example -f compose.yaml -f compose.observability.yaml --profile observability config --quiet
+# Запуск только своего согласованного тестового стенда:
+docker compose --env-file .env.example -f compose.yaml -f compose.observability.yaml --profile observability up --build -d --wait --wait-timeout 240
+```
+
+Grafana `http://127.0.0.1:13007`, login admin с private file; provisioned dashboard UID `vidharbor-overview`. Prometheus13907 и Tempo13207 не имеют внешней авторизации и потому доступны **только loopback/доверенным операторам**. Для удалённого просмотра — SSH tunnel, не `0.0.0.0`. OTLP4318 и component9100 не публикуются на host. `/internal/metrics` доступен Prometheus по Docker DNS с отдельным bearer; web возвращает404. Все клиенты той же Docker-сети считаются доверенной инфраструктурой; сетевая мультитенантность не реализована.
+
+Prometheus: пять app targets(api/upload/relay/worker/cleanup), scrape5с, retention6h/128MB. Queue depth — **ready messages, без unacked**; это не полный backlog, consumers отдельным gauge. Job/attempt/delivery history берётся из PostgreSQL, поэтому перезапуск процесса не обнуляет durable состояния; restore может уменьшить counters. HTTP/export metrics процессные и сбрасываются при restart; `rate()` учитывает reset. Notifier выключен по умолчанию; dashboard webhook metrics отражает Delivery в БД и тестового получателя, не настоящую Google Таблицу.
+
+Tempo: retention1h, trace≤5MB, ingest1MB/s burst2MB; это rate/retention, не жёсткая quota filesystem. Compaction/WAL/block deletion асинхронны. На отдельном хосте нужны disk monitoring и запас; при большом трафике100% sampling/учебные limits пересмотреть до public deployment. Prometheus retention size также не включает все WAL/head overhead. Docker logs1m×3 на каждый контейнер, не общая гарантия размера data-root. Grafana SQLite хранит private preferences; автоматический TTL для её БД не заявлен, доступ ограничен. В панели запреты anonymous/signup/analytics/external plugin download.
+
+Компоненты relay/worker/cleanup имеют внутренний `/health/live`200 для живого HTTP server и `/health/ready`200 лишь при свежем положительном tick (<10 с), иначе503. Docker health ориентируется на live, а readiness проверяется отдельно/метрикой; broker outage не должен вызывать бесконечный restart исправного процесса. API health сохраняет прежнюю семантику. Notifier internal checks включаются только при разрешённом notifications profile.
+
+Минимальные alerts: target down30с, dependency unavailable15с, due outbox age>120с1мин, webhook failed/blocked30с. Это учебные пороги; **не согласованные SLO и не внешнее оповещение**. Alertmanager/email/мессенджеры не подключались. Реальный broker alert дошёл до firing, затем данные/готовность восстановились.
+
+По trace ID искать разрешённые поля JSON:
+
+```bash
+docker compose --env-file .env.example logs --no-color --no-log-prefix api upload relay worker | jq -c 'select(.trace_id == "82f77f97135deec8813a64d7c8bab838")'
+```
+
+Пример ID относится к сохранённому evidence; живой Tempo удалит его после retention. HTTP response выдаёт X-Request-ID/X-Correlation-ID/traceparent. Correlation=Upload UUID; request_id уникален на HTTP запрос, trace сохраняется через durable carrier/повторы. Содержание title/body/headers/cookies/query/exception text не логируется; диагностика ошибок — event/error_code/ID и span status. OTLP отправляется асинхронно, очередь256/batch32, HTTP timeout1с; отказ collector не блокирует бизнес-READY, но потерянные spans не воспроизводятся задним числом.
+
+## Автоматические проверки и подготовленные подключения
+
+`.github/workflows/django-tests.yml` и `s01-ci.yml` сохранены. Новый `s07-observability.yml`: GitHub-hosted ubuntu24.04, временные секреты, настоящий PG/Rabbit/FFmpeg/Tempo/Prometheus/Grafana, маленький синтетический fixture, trace/log/metrics/panel/outage/rotation, always-cleanup containers+volumes+secrets. Artifact проходит allowlist/credential scan и имеет учебный retention3дня; это не backup retention. Никаких n8n/Google credentials в jobs. Непрошедшая проверка даёт failed job; compileall/actionlint не заменяют реальные smoke.
+
+Локальный запуск S07 smoke допустим только с `COMPOSE_PROJECT_NAME=vidharbor-s07-*`, отдельными данными и включённым profile. `scripts/smoke_s07.py --monitoring --fixture <маленький валидный файл> --report <private evidence path>` реально отключает Tempo/Prometheus/Rabbit, создаёт отдельные fixture-данные и терминальную ошибку, возвращая original fixture в finally. Не направлять на чужой/production project. Browser/rotation scripts требуют того же project. Workflow-equivalent выполнен в Codex; **GitHub-hosted run новой ветки Not Run**, push/PR запрещены. Старые зелёные Actions не относятся к новому SHA.
+
+Дальнейшая [n8n/Sheets репетиция](integration-rehearsal.md), [public HTTPS/topology/update/rollback checklist](public-deployment.md) и [независимые копии](backup-restore.md#независимый-носитель-подготовленные-варианты-не-внедрение) подготовлены offline. Notifier/public gates и старые source restart-policy guards не обходить. Без внешнего согласования ничего не включать.

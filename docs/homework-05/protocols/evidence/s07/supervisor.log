@@ -1,0 +1,9 @@
+timeout (GNU coreutils) 9.11
+test_dead_monitor_does_not_unlock_live_writer (__main__.SupervisorTests.test_dead_monitor_does_not_unlock_live_writer) ... ok
+test_dead_worker_keeps_independent_deadline (__main__.SupervisorTests.test_dead_worker_keeps_independent_deadline) ... ok
+test_worker_death_then_group_kill_releases_same_lock (__main__.SupervisorTests.test_worker_death_then_group_kill_releases_same_lock) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 7.292s
+
+OK
