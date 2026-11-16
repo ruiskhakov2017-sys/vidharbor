@@ -76,6 +76,14 @@ def clean(video_id):
 
 
 def clean_pending():
+    # An intent survives PostgreSQL rollback. Replay it before selecting pending
+    # files, including on an ordinary cleaner restart. The journal lock is released
+    # before revoke() acquires Video, preserving the existing lock order.
+    entries, _ = journal.read_entries()
+    for entry in entries:
+        if (entry["kind"] == "delete" and Video.objects.filter(pk=entry["key"]).exclude(
+                state__in=[Video.State.DELETING, Video.State.DELETED]).exists()):
+            revoke(entry["key"])
     count = 0
     for video_id in Video.objects.filter(state=Video.State.DELETING).values_list("id", flat=True).iterator():
         try:
@@ -86,10 +94,7 @@ def clean_pending():
 
 
 def apply_journal():
-    entries, head = journal.read_entries()
-    for entry in entries:
-        if entry["kind"] == "delete" and Video.objects.filter(pk=entry["key"]).exists():
-            revoke(entry["key"])
+    _, head = journal.read_entries()
     clean_pending()
     return head
 

@@ -2,18 +2,22 @@ import tempfile
 import threading
 import queue
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.db import connection, connections
+from django.core.management import call_command
+from django.db import connection, connections, transaction
 from django.test import Client, TransactionTestCase
+from django.utils import timezone
 
 from . import journal
 from .deletion import revoke, clean, clean_pending, apply_journal
 from .job_attempts import begin_attempt, finish_attempt
-from .models import Attempt, Job, Outbox, Upload, Video
+from .models import Attempt, Delivery, Job, Outbox, ReadyEvent, Upload, Video
 from .publication import publish_video, ready_path, staging_path
 from .storage import media_lock, original_path, sync_directory
 
@@ -85,6 +89,85 @@ class DeletionTests(TransactionTestCase):
         self.assertEqual(self.client.get(f"/watch/{self.video.id}").status_code, 404)
         apply_journal()
         self.video.refresh_from_db(); self.assertEqual(self.video.state, "DELETED")
+
+    def test_cleanup_command_recovers_journaled_delete_after_transaction_rollback(self):
+        from .notifications import attach_existing_ready, claim, finish
+        self.job.state = "SUCCEEDED"; self.job.save(update_fields=["state"])
+        self.attempt.state = "SUCCEEDED"; self.attempt.save(update_fields=["state"])
+        event_id = uuid.uuid4()
+        Outbox.objects.create(message_id=event_id, job=self.job, kind="video.ready", attempt_no=0,
+            payload={"type": "video.ready", "version": 1, "event_id": str(event_id),
+                     "video_id": str(self.video.id), "title": self.video.title,
+                     "ready_at": timezone.now().isoformat(),
+                     "playlist_url": f"https://video.example.invalid/media/{self.video.id}/master.m3u8"})
+        self.assertEqual(attach_existing_ready(), 1)
+        sending = claim(event_id)
+        self.assertIsNotNone(sending)
+
+        with self.assertRaisesRegex(RuntimeError, "rollback after durable intent"):
+            with transaction.atomic():
+                revoke(self.video.id)
+                self.assertTrue(journal.is_deleted(self.video.id))
+                raise RuntimeError("rollback after durable intent")
+
+        self.video.refresh_from_db()
+        self.assertEqual((self.video.state, self.video.generation, self.video.published_generation), ("READY", 1, 1))
+        self.assertEqual(Delivery.objects.get(pk=event_id).state, "SENDING")
+        self.assertTrue(original_path(self.video.upload_id).exists())
+        intent = journal.deletion_record(self.video.id)
+        self.assertIsNotNone(intent)
+        self.assertEqual(self.client.get(f"/watch/{self.video.id}").status_code, 404)
+
+        # An ordinary restarted cleaner must recover without a restore command.
+        call_command("cleanup_uploads", stdout=StringIO())
+        self.video.refresh_from_db()
+        self.assertEqual(self.video.state, "DELETED")
+        self.assertFalse(original_path(self.video.upload_id).exists())
+        self.assertEqual(Delivery.objects.get(pk=event_id).state, "CANCELLED")
+        finish(sending, "written")
+        self.assertIsNone(claim(event_id))
+        self.assertEqual(attach_existing_ready(), 0)
+        self.assertEqual(Delivery.objects.get(pk=event_id).state, "CANCELLED")
+
+        settled = (self.video.generation, self.video.deleted_at)
+        call_command("cleanup_uploads", stdout=StringIO())
+        self.video.refresh_from_db()
+        self.assertEqual((self.video.generation, self.video.deleted_at), settled)
+        self.assertEqual(journal.deletion_record(self.video.id), intent)
+        self.assertEqual((Job.objects.count(), Outbox.objects.count(), ReadyEvent.objects.count()), (1, 1, 1))
+
+    def test_replayed_intent_waits_for_writer_lock_and_cannot_republish(self):
+        Video.objects.filter(pk=self.video.pk).update(state="QUEUED", published_generation=None)
+        staged = staging_path(self.video.id)
+        staged.mkdir(parents=True)
+        (staged / "unfinished-output").write_bytes(b"partial encoding")
+        with self.assertRaisesRegex(RuntimeError, "rollback with active writer"):
+            with transaction.atomic():
+                revoke(self.video.id)
+                raise RuntimeError("rollback with active writer")
+        self.video.refresh_from_db(); self.attempt.refresh_from_db()
+        self.assertEqual((self.video.state, self.attempt.state), ("QUEUED", "RUNNING"))
+        intent = journal.deletion_record(self.video.id)
+        with media_lock(self.video.id) as acquired:
+            self.assertTrue(acquired)
+            inode = (self.root / "locks" / str(self.video.id)).stat().st_ino
+            call_command("cleanup_uploads", stdout=StringIO())
+            self.video.refresh_from_db(); self.job.refresh_from_db(); self.attempt.refresh_from_db()
+            self.assertEqual((self.video.state, self.job.state, self.attempt.state), ("DELETING", "CANCELLED", "FAILED"))
+            self.assertTrue(original_path(self.video.upload_id).exists())
+            self.assertTrue(staged.exists())
+            finish_attempt(self.attempt.id, "success", {}, publish=publish_video)
+            self.assertIsNone(begin_attempt(self.job.id, 1, 2, {}))
+            self.assertFalse(Outbox.objects.filter(kind="video.ready").exists())
+        call_command("cleanup_uploads", stdout=StringIO())
+        self.video.refresh_from_db()
+        self.assertEqual((self.video.state, self.video.generation), ("DELETED", 2))
+        self.assertFalse(original_path(self.video.upload_id).exists())
+        self.assertFalse(staged.exists())
+        self.assertEqual((self.root / "locks" / str(self.video.id)).stat().st_ino, inode)
+        self.assertEqual(clean_pending(), 0)
+        self.assertEqual(journal.deletion_record(self.video.id), intent)
+        self.assertEqual((Job.objects.count(), Attempt.objects.count(), Outbox.objects.count()), (1, 1, 0))
 
     def test_corrupt_journal_fails_closed_and_restore_mode_blocks_public_access(self):
         self.assertEqual(self.post().status_code, 200)
