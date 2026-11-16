@@ -438,38 +438,49 @@ export const PublicVideos = defineComponent({
     }
     function card(item: PublicVideo, compact = false) {
       return h("li", { key: item.id }, [
-        h("a", { href: item.watch_url, class: ["video-card", { compact }], "data-topic": item.category }, [
-          h("div", { class: "card-frame" }, [
-            cover(item),
-            !compact && item.category
-              ? h("span", { class: "frame-topic", "aria-hidden": "true" }, [icon(topicIcon(item.category)), item.category])
-              : null,
-            duration(item.duration_seconds)
-              ? h(
-                  "span",
-                  { class: "duration" },
-                  duration(item.duration_seconds),
-                )
-              : null,
-            h("span", { class: "hover-play", "aria-hidden": "true" }, [
-              h("span", { class: "card-play-action" }, [
-                icon("play"),
-                h("span", "Смотреть"),
+        h(
+          "a",
+          {
+            href: item.watch_url,
+            class: ["video-card", { compact }],
+            "data-topic": item.category,
+          },
+          [
+            h("div", { class: "card-frame" }, [
+              cover(item),
+              !compact && item.category
+                ? h("span", { class: "frame-topic", "aria-hidden": "true" }, [
+                    icon(topicIcon(item.category)),
+                    item.category,
+                  ])
+                : null,
+              duration(item.duration_seconds)
+                ? h(
+                    "span",
+                    { class: "duration" },
+                    duration(item.duration_seconds),
+                  )
+                : null,
+              h("span", { class: "hover-play", "aria-hidden": "true" }, [
+                h("span", { class: "card-play-action" }, [
+                  icon("play"),
+                  h("span", "Смотреть"),
+                ]),
               ]),
             ]),
-          ]),
-          h("div", { class: "card-info" }, [
-            avatar(item),
-            h("div", { class: "card-text" }, [
-              h("h3", item.title),
-              h("p", { class: "card-creator" }, item.creator || "VidHarbor"),
-              h("p", { class: "card-meta" }, [
-                item.category || "Видео",
-                item.demo ? h("span", { class: "demo-label" }, "Демо") : null,
+            h("div", { class: "card-info" }, [
+              avatar(item),
+              h("div", { class: "card-text" }, [
+                h("h3", item.title),
+                h("p", { class: "card-creator" }, item.creator || "VidHarbor"),
+                h("p", { class: "card-meta" }, [
+                  item.category || "Видео",
+                  item.demo ? h("span", { class: "demo-label" }, "Демо") : null,
+                ]),
               ]),
             ]),
-          ]),
-        ]),
+          ],
+        ),
       ]);
     }
     function topicIcon(name: string): IconName {
@@ -591,6 +602,15 @@ export const PublicVideos = defineComponent({
         ],
       );
     }
+    function topicArtwork(name: string) {
+      const sample = items.value.find(
+        (item) =>
+          item.category === name &&
+          item.thumbnail_url &&
+          !failedImages.value.has(item.id),
+      );
+      return sample ? cover(sample) : icon(topicIcon(name));
+    }
     function topicChips() {
       return h(
         "div",
@@ -605,9 +625,7 @@ export const PublicVideos = defineComponent({
             },
             [
               h("span", { class: "topic-art", "aria-hidden": "true" }, [
-                name !== "Все видео" && items.value.find((item) => item.category === name && item.thumbnail_url && !failedImages.value.has(item.id))
-                  ? cover(items.value.find((item) => item.category === name && item.thumbnail_url && !failedImages.value.has(item.id))!)
-                  : icon(topicIcon(name)),
+                topicArtwork(name),
               ]),
               h("span", { class: "topic-name" }, name),
               icon("next", "topic-arrow"),
@@ -868,7 +886,7 @@ export const PublicVideos = defineComponent({
                     : null,
                 ]
               : [
-                  topicChips(),
+                  topics.value.length ? topicChips() : null,
                   h(
                     "section",
                     {
