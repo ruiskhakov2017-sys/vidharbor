@@ -72,7 +72,9 @@ def main():
     args.report.parent.mkdir(parents=True,exist_ok=True)
     jar = CookieJar(); opener = build_opener(ProxyHandler({}), HTTPCookieProcessor(jar))
     guest = build_opener(ProxyHandler({}))
-    report = {'status':'RUNNING','project':project,'base':base,'github_ci':'Not Run (no push/PR authorized)'}
+    report = {'status':'RUNNING','project':project,'base':base,'github_ci':
+        'Running in GitHub Actions; final result belongs to the job' if os.getenv('GITHUB_ACTIONS')=='true'
+        else 'Not Run (no push/PR authorized)'}
     try:
         suffix = uuid.uuid4().hex
         username = 's07-' + suffix[:10]; password = 'Test-only-' + suffix
