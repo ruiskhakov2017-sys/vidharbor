@@ -19,9 +19,27 @@ type IconName =
   | "next"
   | "close"
   | "share"
-  | "screen";
+  | "screen"
+  | "menu"
+  | "home"
+  | "grid"
+  | "plus"
+  | "nature"
+  | "city"
+  | "travel"
+  | "architecture"
+  | "film";
 function icon(kind: IconName, className = "") {
   const paths = {
+    menu: "M4 6h16M4 12h16M4 18h16",
+    home: "m3 10 9-7 9 7v11h-6v-7H9v7H3z",
+    grid: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z",
+    plus: "M12 5v14M5 12h14",
+    nature: "M20 3C10 2 3 6 4 14c1 7 13 10 16-11ZM4 21 15 9",
+    city: "M3 21V9h6V3h7v10h5v8M7 13h1m4-6h1m-1 4h1m-1 4h1m4 2h1",
+    travel: "M3 9h18v12H3zM8 9V4h8v5M7 9v12M17 9v12",
+    architecture: "m3 9 9-6 9 6M3 21h18M5 9v12M10 9v12M14 9v12M19 9v12",
+    film: "M3 3h18v18H3zM7 3v18M17 3v18M3 8h4m10 0h4M3 16h4m10 0h4",
     play: "M9 5v14l11-7z",
     arrow: "M6 18 18 6M6 6h12v12",
     search: "M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0",
@@ -138,7 +156,7 @@ const Player = defineComponent({
         }),
         levels.value.length
           ? h("label", { class: "quality" }, [
-              h("span", "Качество воспроизведения"),
+              h("span", "Качество"),
               h("select", { value: selection.value, onChange: changeQuality }, [
                 h("option", { value: -1 }, "Auto · автоматически"),
                 ...levels.value.map((label, index) =>
@@ -155,71 +173,83 @@ const Player = defineComponent({
 export const PublicVideos = defineComponent({
   props: { videoId: { type: String, required: true } },
   setup(props) {
+    const isWatch = !!props.videoId;
+    const initialParams = new URLSearchParams(window.location.search);
+    const query = ref(initialParams.get("q") ?? "");
+    const searched = ref(query.value.trim());
+    const category = ref(initialParams.get("topic") || "Все видео");
     const items = ref<PublicVideo[]>([]);
     const video = ref<PublicVideo>();
-    const query = ref(
-      new URLSearchParams(window.location.search).get("q") ?? "",
-    );
-    const searched = ref(query.value);
+    const topics = ref<string[]>([]);
     const busy = ref(true);
     const error = ref("");
-    const category = ref("Все видео");
-    const featuredIndex = ref(0);
+    const failedImages = ref(new Set<string>());
+    const desktop = window.matchMedia("(min-width: 1100px)");
+    const menuOpen = ref(desktop.matches && !isWatch);
+    const menuButton = ref<HTMLButtonElement>();
     const cinema = ref(false);
     const copied = ref("");
-    const failedImages = ref(new Set<string>());
+    const relatedTopic = ref(false);
     let requestId = 0;
     let copyTimer: number | undefined;
-    const categories = computed(() => [
-      "Все видео",
-      ...new Set(
-        items.value
-          .map((item) => item.category)
-          .filter((x): x is string => !!x),
-      ),
-    ]);
+    const categories = computed(() => ["Все видео", ...topics.value]);
     const filtered = computed(() =>
       category.value === "Все видео"
         ? items.value
         : items.value.filter((item) => item.category === category.value),
     );
-    const featured = computed(
-      () => items.value[featuredIndex.value % Math.max(items.value.length, 1)],
-    );
     const recommendations = computed(() =>
-      items.value.filter((item) => item.id !== props.videoId).slice(0, 3),
+      items.value.filter(
+        (item) =>
+          item.id !== props.videoId &&
+          (!relatedTopic.value || item.category === video.value?.category),
+      ),
     );
-
+    function catalogUrl(q = "", topic = "Все видео") {
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      if (topic !== "Все видео") params.set("topic", topic);
+      return "/catalog" + (params.size ? "?" + params.toString() : "");
+    }
+    function rememberTopics(videos: PublicVideo[]) {
+      topics.value = [
+        ...new Set([
+          ...topics.value,
+          ...videos
+            .map((item) => item.category)
+            .filter((name): name is string => !!name),
+        ]),
+      ];
+    }
     async function load() {
       const request = ++requestId;
-      const requestedQuery = query.value;
+      const requestedQuery = query.value.trim();
       busy.value = true;
       error.value = "";
       try {
-        if (props.videoId) {
+        if (isWatch) {
           video.value = await api<PublicVideo>(
             "/api/catalog/" + encodeURIComponent(props.videoId),
           );
-          // Recommendations are optional; a catalogue failure must not hide the player.
           void api<{ videos: PublicVideo[] }>("/api/catalog")
             .then((result) => {
+              if (request !== requestId) return;
               items.value = result.videos;
+              rememberTopics(result.videos);
             })
             .catch(() => {});
         } else {
-          const params = new URLSearchParams({ q: requestedQuery });
           const result = await api<{ videos: PublicVideo[] }>(
-            "/api/catalog?" + params,
+            "/api/catalog?" + new URLSearchParams({ q: requestedQuery }),
           );
           if (request !== requestId) return;
           items.value = result.videos;
-          searched.value = requestedQuery.trim();
-          featuredIndex.value = 0;
-          category.value = "Все видео";
+          rememberTopics(result.videos);
+          searched.value = requestedQuery;
           window.history.replaceState(
             null,
             "",
-            "/catalog" + (requestedQuery ? "?" + params : ""),
+            catalogUrl(requestedQuery, category.value),
           );
         }
       } catch (failure) {
@@ -232,16 +262,52 @@ export const PublicVideos = defineComponent({
         if (request === requestId) busy.value = false;
       }
     }
-    onMounted(load);
+    function viewportChanged() {
+      menuOpen.value = desktop.matches && !isWatch;
+    }
+    function closeMenu() {
+      menuOpen.value = false;
+    }
+    function escapeMenu(event: KeyboardEvent) {
+      if (event.key === "Escape" && menuOpen.value) {
+        menuOpen.value = false;
+        menuButton.value?.focus();
+      }
+    }
+    onMounted(() => {
+      void load();
+      desktop.addEventListener("change", viewportChanged);
+      window.addEventListener("keydown", escapeMenu);
+    });
     onBeforeUnmount(() => {
       ++requestId;
       window.clearTimeout(copyTimer);
+      desktop.removeEventListener("change", viewportChanged);
+      window.removeEventListener("keydown", escapeMenu);
     });
-    const reset = () => {
+    function submitSearch(event: Event) {
+      event.preventDefault();
+      if (isWatch) {
+        window.location.assign(catalogUrl(query.value.trim()));
+        return;
+      }
+      category.value = "Все видео";
+      void load();
+    }
+    function reset() {
       query.value = "";
       category.value = "Все видео";
       void load();
-    };
+    }
+    function selectCategory(name: string) {
+      if (isWatch) {
+        window.location.assign(catalogUrl("", name));
+        return;
+      }
+      category.value = name;
+      window.history.replaceState(null, "", catalogUrl(searched.value, name));
+      if (!desktop.matches) closeMenu();
+    }
     async function share() {
       try {
         await navigator.clipboard.writeText(window.location.href);
@@ -254,29 +320,34 @@ export const PublicVideos = defineComponent({
         copied.value = "";
       }, 4000);
     }
-    function cover(item: PublicVideo, hero = false) {
+    function cover(item: PublicVideo) {
       return item.thumbnail_url && !failedImages.value.has(item.id)
         ? h("img", {
             src: item.thumbnail_url,
             alt: "",
-            loading: hero ? "eager" : "lazy",
+            loading: "lazy",
             decoding: "async",
             onError: () => {
               failedImages.value = new Set([...failedImages.value, item.id]);
             },
           })
         : h("div", { class: "cover-fallback", "aria-hidden": "true" }, [
-            h("span", "VH"),
-            h("small", "ИСТОРИЯ НАЧИНАЕТСЯ С PLAY"),
+            icon("play"),
+            h("span", "VidHarbor"),
           ]);
     }
-    function card(item: PublicVideo, index: number) {
+    function avatar(item: PublicVideo) {
+      return h(
+        "span",
+        { class: "creator-avatar", "aria-hidden": "true" },
+        item.creator ? item.creator.slice(0, 1).toUpperCase() : "V",
+      );
+    }
+    function card(item: PublicVideo, compact = false) {
       return h("li", { key: item.id }, [
-        h("a", { href: item.watch_url, class: "video-card" }, [
+        h("a", { href: item.watch_url, class: ["video-card", { compact }] }, [
           h("div", { class: "card-frame" }, [
             cover(item),
-            h("span", { class: "card-play" }, [icon("play")]),
-            item.demo ? h("span", { class: "demo-label" }, "ДЕМОЭТЮД") : null,
             duration(item.duration_seconds)
               ? h(
                   "span",
@@ -284,48 +355,101 @@ export const PublicVideos = defineComponent({
                   duration(item.duration_seconds),
                 )
               : null,
+            h("span", { class: "hover-play", "aria-hidden": "true" }, [
+              icon("play"),
+            ]),
           ]),
-          h("div", { class: "card-caption" }, [
-            h(
-              "span",
-              { class: "card-number" },
-              String(index + 1).padStart(2, "0"),
-            ),
-            h("h3", item.title),
-            icon("arrow"),
-          ]),
-          h("p", { class: "card-meta" }, [
-            item.category || "Видео",
-            h("span", " / "),
-            item.creator || "VidHarbor",
+          h("div", { class: "card-info" }, [
+            avatar(item),
+            h("div", { class: "card-text" }, [
+              h("h3", item.title),
+              h("p", { class: "card-creator" }, item.creator || "VidHarbor"),
+              h("p", { class: "card-meta" }, [
+                item.category || "Видео",
+                item.demo ? h("span", { class: "demo-label" }, "Демо") : null,
+              ]),
+            ]),
           ]),
         ]),
       ]);
     }
+    function topicIcon(name: string): IconName {
+      const icons: Record<string, IconName> = {
+        "Все видео": "home",
+        Природа: "nature",
+        Город: "city",
+        Путешествия: "travel",
+        Архитектура: "architecture",
+        Кино: "film",
+      };
+      return icons[name] || "grid";
+    }
+    function sidebar() {
+      return h(
+        "aside",
+        {
+          id: "portal-navigation",
+          class: "portal-sidebar",
+          hidden: !menuOpen.value,
+          "aria-label": "Навигация по видео",
+        },
+        [
+          h("nav", { "aria-label": "Разделы" }, [
+            h(
+              "button",
+              {
+                class: [
+                  "sidebar-item",
+                  { selected: !isWatch && category.value === "Все видео" },
+                ],
+                "aria-pressed": !isWatch && category.value === "Все видео",
+                onClick: () => selectCategory("Все видео"),
+              },
+              [icon("home"), "Все видео"],
+            ),
+            h("div", { class: "sidebar-divider" }),
+            topics.value.length
+              ? [
+                  h("p", { class: "sidebar-label" }, "ТЕМЫ"),
+                  ...topics.value.map((name) =>
+                    h(
+                      "button",
+                      {
+                        class: [
+                          "sidebar-item",
+                          { selected: !isWatch && category.value === name },
+                        ],
+                        "aria-pressed": !isWatch && category.value === name,
+                        onClick: () => selectCategory(name),
+                      },
+                      [icon(topicIcon(name)), name],
+                    ),
+                  ),
+                ]
+              : null,
+          ]),
+          h("div", { class: "sidebar-bottom" }, [
+            h("a", { href: "/", class: "sidebar-item" }, [
+              icon("plus"),
+              "Кабинет автора",
+            ]),
+            h("p", ["VidHarbor", h("span", "Видеоплатформа")]),
+          ]),
+        ],
+      );
+    }
     function search() {
       return h(
         "form",
-        {
-          class: "catalog-search",
-          role: "search",
-          onSubmit: (event: Event) => {
-            event.preventDefault();
-            void load();
-          },
-        },
+        { class: "portal-search", role: "search", onSubmit: submitSearch },
         [
-          h(
-            "label",
-            { for: "video-search", class: "sr-only" },
-            "Поиск по названию видео",
-          ),
-          icon("search"),
+          h("label", { for: "video-search", class: "sr-only" }, "Поиск видео"),
           h("input", {
             id: "video-search",
             type: "search",
-            placeholder: "Найти свою историю",
-            value: query.value,
+            placeholder: "Поиск видео",
             maxlength: 200,
+            value: query.value,
             onInput: (event: Event) => {
               query.value = (event.target as HTMLInputElement).value;
             },
@@ -333,386 +457,346 @@ export const PublicVideos = defineComponent({
           h(
             "button",
             {
-              disabled: busy.value,
-              "aria-label": "Найти видео",
               type: "submit",
+              "aria-label": "Найти видео",
+              disabled: busy.value && !isWatch,
             },
-            [icon("arrow")],
+            [icon("search")],
           ),
         ],
       );
     }
-    return () =>
-      h("div", { class: ["public-site", { "cinema-mode": cinema.value }] }, [
-        h(
-          "a",
-          { href: "#public-content", class: "skip-link" },
-          "К содержимому",
+    function topicChips() {
+      return h(
+        "div",
+        { class: "topic-chips", "aria-label": "Темы видео" },
+        categories.value.map((name) =>
+          h(
+            "button",
+            {
+              "aria-pressed": category.value === name,
+              onClick: () => selectCategory(name),
+            },
+            name,
+          ),
         ),
-        h("header", { class: "site-header" }, [
+      );
+    }
+    return () =>
+      h(
+        "div",
+        {
+          class: [
+            "public-site",
+            isWatch ? "watch-view" : "catalog-view",
+            { "nav-open": menuOpen.value, "cinema-mode": cinema.value },
+          ],
+        },
+        [
           h(
             "a",
-            {
-              class: "brand",
-              href: "/catalog",
-              "aria-label": "VidHarbor — каталог",
-            },
-            [h("span", { class: "brand-icon" }, [icon("play")]), "vidharbor"],
+            { href: "#public-content", class: "skip-link" },
+            "К содержимому",
           ),
-          h("nav", { "aria-label": "Основная навигация" }, [
+          h("header", { class: "portal-header" }, [
+            h("div", { class: "header-brand" }, [
+              h(
+                "button",
+                {
+                  ref: menuButton,
+                  class: "icon-button menu-button",
+                  "aria-label": menuOpen.value ? "Скрыть меню" : "Открыть меню",
+                  "aria-controls": "portal-navigation",
+                  "aria-expanded": menuOpen.value,
+                  onClick: () => {
+                    menuOpen.value = !menuOpen.value;
+                  },
+                },
+                [icon("menu")],
+              ),
+              h(
+                "a",
+                {
+                  href: "/catalog",
+                  class: "brand",
+                  "aria-label": "VidHarbor — каталог",
+                },
+                [
+                  h("span", { class: "brand-mark" }, [icon("play")]),
+                  h("span", "VidHarbor"),
+                ],
+              ),
+            ]),
+            search(),
             h(
               "a",
               {
-                href: "/catalog",
-                "aria-current": props.videoId ? undefined : "page",
+                href: "/",
+                class: "upload-link",
+                "aria-label": "Загрузить видео",
               },
-              "Смотреть",
+              [icon("plus"), h("span", "Загрузить видео")],
             ),
-            h("a", { class: "author-link", href: "/" }, [
-              "Авторам",
-              icon("arrow"),
-            ]),
           ]),
-          h("span", { class: "header-note" }, "ХОРОШИЕ ИСТОРИИ ЖИВУТ ЗДЕСЬ"),
-        ]),
-        h("main", { id: "public-content", class: "public-main" }, [
-          props.videoId
-            ? [
-                h("div", { class: "watch-topline" }, [
-                  h("a", { class: "back-link", href: "/catalog" }, [
-                    icon("back"),
-                    "В коллекцию",
+          sidebar(),
+          menuOpen.value
+            ? h("button", {
+                class: "navigation-scrim",
+                onClick: closeMenu,
+                "aria-label": "Закрыть меню",
+                tabindex: -1,
+              })
+            : null,
+          h(
+            "main",
+            { id: "public-content", class: "portal-main" },
+            isWatch
+              ? [
+                  h("div", { class: "watch-topline" }, [
+                    h("a", { href: "/catalog", class: "back-link" }, [
+                      icon("back"),
+                      "В каталог",
+                    ]),
                   ]),
-                  h("span", "VIDHARBOR / ПРОСМОТР"),
-                ]),
-                video.value
-                  ? h(
-                      "section",
-                      {
-                        class: "watch-section",
-                        "aria-labelledby": "watch-title",
-                      },
-                      [
-                        h(Player, {
-                          key: video.value.id,
-                          source: video.value.playlist_url,
-                          poster: video.value.thumbnail_url,
-                        }),
-                        h("div", { class: "watch-info" }, [
-                          h("div", [
-                            h("p", { class: "eyebrow" }, [
-                              video.value.category || "ВИДЕО",
-                              video.value.demo ? " / ДЕМОЭТЮД" : "",
-                            ]),
+                  video.value
+                    ? h("div", { class: "watch-layout" }, [
+                        h(
+                          "section",
+                          {
+                            class: "watch-primary",
+                            "aria-labelledby": "watch-title",
+                          },
+                          [
+                            h(Player, {
+                              key: video.value.id,
+                              source: video.value.playlist_url,
+                              poster: video.value.thumbnail_url,
+                            }),
                             h("h1", { id: "watch-title" }, video.value.title),
-                            h("p", { class: "watch-creator" }, [
-                              video.value.creator || "VidHarbor",
-                              duration(video.value.duration_seconds)
-                                ? " · " + duration(video.value.duration_seconds)
-                                : "",
+                            h("div", { class: "watch-metadata" }, [
+                              h("div", { class: "watch-creator" }, [
+                                avatar(video.value),
+                                h("div", [
+                                  h(
+                                    "strong",
+                                    video.value.creator || "VidHarbor",
+                                  ),
+                                  h(
+                                    "span",
+                                    video.value.demo
+                                      ? "Демонстрационный ролик"
+                                      : video.value.category || "Видео",
+                                  ),
+                                ]),
+                              ]),
+                              h("div", { class: "watch-actions" }, [
+                                h(
+                                  "button",
+                                  { class: "action-button", onClick: share },
+                                  [icon("share"), "Поделиться"],
+                                ),
+                                h(
+                                  "button",
+                                  {
+                                    class: "icon-button cinema-button",
+                                    "aria-label": "Режим кинотеатра",
+                                    "aria-pressed": cinema.value,
+                                    onClick: () => {
+                                      cinema.value = !cinema.value;
+                                    },
+                                  },
+                                  [icon("screen")],
+                                ),
+                              ]),
                             ]),
-                            video.value.description
-                              ? h(
-                                  "p",
-                                  { class: "watch-description" },
-                                  video.value.description,
-                                )
-                              : null,
-                          ]),
-                          h("div", { class: "watch-actions" }, [
                             h(
-                              "button",
-                              { class: "outline-button", onClick: share },
-                              [icon("share"), "Поделиться"],
-                            ),
-                            h(
-                              "button",
-                              {
-                                class: "icon-button",
-                                "aria-label": "Режим кинотеатра",
-                                "aria-pressed": cinema.value,
-                                onClick: () => {
-                                  cinema.value = !cinema.value;
-                                },
-                              },
-                              [icon("screen")],
-                            ),
-                            h(
-                              "span",
+                              "p",
                               { class: "share-status", role: "status" },
                               copied.value,
                             ),
-                          ]),
-                        ]),
-                      ],
-                    )
-                  : null,
-                recommendations.value.length
-                  ? h(
-                      "section",
-                      {
-                        class: "recommendations",
-                        "aria-labelledby": "next-title",
-                      },
-                      [
-                        h("div", { class: "collection-heading" }, [
-                          h("h2", { id: "next-title" }, "Продолжить открывать"),
-                          h("a", { href: "/catalog" }, "Вся коллекция ↗"),
-                        ]),
-                        h(
-                          "ul",
-                          { class: "video-grid" },
-                          recommendations.value.map(card),
-                        ),
-                      ],
-                    )
-                  : null,
-              ]
-            : [
-                h(
-                  "section",
-                  {
-                    class: "catalog-masthead",
-                    "aria-labelledby": "catalog-title",
-                  },
-                  [
-                    h("div", [
-                      h(
-                        "p",
-                        { class: "eyebrow" },
-                        "НЕЗАВИСИМЫЙ ВЗГЛЯД. БЕСКОНЕЧНОЕ ВДОХНОВЕНИЕ.",
-                      ),
-                      h("h1", { id: "catalog-title" }, [
-                        "Смотри ",
-                        h("em", "шире."),
-                        h(
-                          "span",
-                          { class: "title-spark", "aria-hidden": "true" },
-                          h(
-                            "svg",
-                            {
-                              viewBox: "0 0 24 24",
-                              width: "1em",
-                              height: "1em",
-                              fill: "none",
-                              stroke: "currentColor",
-                              "stroke-width": 1.8,
-                              "stroke-linecap": "round",
-                            },
-                            [
-                              h("path", {
-                                d: "M12 2v20M2 12h20M5 5l14 14M5 19 19 5",
-                              }),
-                            ],
-                          ),
-                        ),
-                      ]),
-                    ]),
-                    h("div", { class: "masthead-right" }, [
-                      h(
-                        "p",
-                        "Истории, ради которых стоит\nостановиться. И нажать play.",
-                      ),
-                      search(),
-                    ]),
-                  ],
-                ),
-                !searched.value && featured.value && !error.value
-                  ? h(
-                      "section",
-                      { class: "featured", "aria-label": "В фокусе" },
-                      [
-                        cover(featured.value, true),
-                        h("div", { class: "hero-shade" }),
-                        h("div", { class: "hero-top" }, [
-                          h("span", { class: "hero-badge" }, [
-                            h("i"),
-                            "В ФОКУСЕ",
-                          ]),
-                          h("span", "THE VIDHARBOR SELECTION"),
-                        ]),
-                        h("div", { class: "hero-content" }, [
-                          h("p", { class: "eyebrow" }, [
-                            featured.value.category || "ВИДЕО",
-                            " / ",
-                            featured.value.demo
-                              ? "ВИЗУАЛЬНЫЙ ЭТЮД"
-                              : "СМОТРЕТЬ ОНЛАЙН",
-                          ]),
-                          h("h2", featured.value.title),
-                          h("div", { class: "hero-bottom" }, [
-                            h(
-                              "a",
-                              {
-                                href: featured.value.watch_url,
-                                class: "primary-button",
-                              },
-                              [icon("play"), "Смотреть видео"],
-                            ),
-                            h(
-                              "span",
-                              { class: "hero-credit" },
-                              featured.value.creator || "VidHarbor",
-                            ),
-                          ]),
-                        ]),
-                        h("div", { class: "hero-pagination" }, [
-                          h("span", [
-                            String(featuredIndex.value + 1).padStart(2, "0"),
-                            h(
-                              "small",
-                              " / " +
-                                String(
-                                  Math.min(items.value.length, 3),
-                                ).padStart(2, "0"),
-                            ),
-                          ]),
-                          h(
-                            "button",
-                            {
-                              class: "icon-button",
-                              "aria-label": "Предыдущее видео в фокусе",
-                              onClick: () => {
-                                featuredIndex.value =
-                                  (featuredIndex.value +
-                                    Math.min(items.value.length, 3) -
-                                    1) %
-                                  Math.min(items.value.length, 3);
-                              },
-                            },
-                            [icon("back")],
-                          ),
-                          h(
-                            "button",
-                            {
-                              class: "icon-button",
-                              "aria-label": "Следующее видео в фокусе",
-                              onClick: () => {
-                                featuredIndex.value =
-                                  (featuredIndex.value + 1) %
-                                  Math.min(items.value.length, 3);
-                              },
-                            },
-                            [icon("next")],
-                          ),
-                        ]),
-                      ],
-                    )
-                  : null,
-                h(
-                  "section",
-                  {
-                    class: "collection",
-                    "aria-labelledby": "collection-title",
-                    "aria-busy": busy.value,
-                  },
-                  [
-                    h("div", { class: "collection-heading" }, [
-                      h("h2", { id: "collection-title" }, [
-                        searched.value
-                          ? "Найденные истории"
-                          : "Стоит вашего времени",
-                        h(
-                          "sup",
-                          String(filtered.value.length).padStart(2, "0"),
-                        ),
-                      ]),
-                      h(
-                        "span",
-                        { class: "collection-note" },
-                        "МЕНЬШЕ ШУМА. БОЛЬШЕ СМЫСЛА.",
-                      ),
-                    ]),
-                    categories.value.length > 1
-                      ? h(
-                          "div",
-                          {
-                            class: "category-tabs",
-                            "aria-label": "Темы видео",
-                          },
-                          categories.value.map((name) =>
-                            h(
-                              "button",
-                              {
-                                "aria-pressed": category.value === name,
-                                onClick: () => {
-                                  category.value = name;
-                                },
-                              },
-                              name,
-                            ),
-                          ),
-                        )
-                      : null,
-                    busy.value
-                      ? h(
-                          "div",
-                          { class: "loading-state", role: "status" },
-                          "Собираем истории…",
-                        )
-                      : !error.value && filtered.value.length
-                        ? h(
-                            "ul",
-                            { class: "video-grid" },
-                            filtered.value.map(card),
-                          )
-                        : !error.value
-                          ? h("div", { class: "empty-state" }, [
-                              icon("search"),
-                              h(
-                                "h3",
-                                searched.value
-                                  ? "У этой истории пока нет кадра."
-                                  : "Новые истории — впереди.",
-                              ),
+                            h("div", { class: "video-description" }, [
+                              h("div", { class: "description-meta" }, [
+                                h("span", video.value.category || "Видео"),
+                                duration(video.value.duration_seconds)
+                                  ? h(
+                                      "span",
+                                      duration(video.value.duration_seconds),
+                                    )
+                                  : null,
+                                video.value.demo
+                                  ? h("span", { class: "demo-label" }, "Демо")
+                                  : null,
+                              ]),
                               h(
                                 "p",
-                                searched.value
-                                  ? "Ничего не найдено. Попробуйте другое название."
-                                  : "Опубликованные видео появятся здесь.",
+                                video.value.description ||
+                                  "Смотрите видео и делитесь прямой ссылкой.",
                               ),
-                              searched.value
-                                ? h(
-                                    "button",
-                                    { class: "primary-button", onClick: reset },
-                                    "Вернуться ко всем видео",
-                                  )
-                                : null,
-                            ])
+                            ]),
+                          ],
+                        ),
+                        recommendations.value.length || relatedTopic.value
+                          ? h(
+                              "aside",
+                              {
+                                class: "watch-related",
+                                "aria-labelledby": "related-title",
+                              },
+                              [
+                                h(
+                                  "h2",
+                                  { id: "related-title" },
+                                  "Смотрите также",
+                                ),
+                                video.value.category
+                                  ? h("div", { class: "related-chips" }, [
+                                      h(
+                                        "button",
+                                        {
+                                          "aria-pressed": !relatedTopic.value,
+                                          onClick: () => {
+                                            relatedTopic.value = false;
+                                          },
+                                        },
+                                        "Все видео",
+                                      ),
+                                      h(
+                                        "button",
+                                        {
+                                          "aria-pressed": relatedTopic.value,
+                                          onClick: () => {
+                                            relatedTopic.value = true;
+                                          },
+                                        },
+                                        video.value.category,
+                                      ),
+                                    ])
+                                  : null,
+                                recommendations.value.length
+                                  ? h(
+                                      "ul",
+                                      { class: "related-list" },
+                                      recommendations.value.map((item) =>
+                                        card(item, true),
+                                      ),
+                                    )
+                                  : h(
+                                      "p",
+                                      { class: "related-empty" },
+                                      "Других видео на эту тему пока нет.",
+                                    ),
+                              ],
+                            )
                           : null,
-                  ],
-                ),
-                items.value.length > 0 && !searched.value
-                  ? h("div", { class: "closing-line" }, [
-                      h("span", "Каждый кадр —"),
-                      h("em", "новая точка зрения."),
-                      icon("arrow"),
-                    ])
-                  : null,
-              ],
-          busy.value && props.videoId
-            ? h(
-                "p",
-                { role: "status", class: "page-message" },
-                "Готовим экран…",
-              )
-            : null,
-          error.value
-            ? h("div", { class: "page-message" }, [
-                h("p", { role: "alert" }, error.value),
-                h(
-                  "button",
-                  { onClick: load, class: "primary-button" },
-                  "Повторить",
-                ),
-              ])
-            : null,
-        ]),
-        h("footer", { class: "site-footer" }, [
-          h("a", { class: "brand", href: "/catalog" }, "vidharbor"),
-          h("span", "Место, где видео находят своего зрителя."),
-          h("span", "PRESS PLAY. FEEL MORE."),
-        ]),
-      ]);
+                      ])
+                    : null,
+                  busy.value
+                    ? h(
+                        "p",
+                        { role: "status", class: "loading-state" },
+                        "Загружаем видео…",
+                      )
+                    : null,
+                  error.value
+                    ? h("div", { class: "error-state" }, [
+                        h("p", { role: "alert" }, error.value),
+                        h(
+                          "button",
+                          { class: "action-button", onClick: load },
+                          "Повторить",
+                        ),
+                      ])
+                    : null,
+                ]
+              : [
+                  topicChips(),
+                  h(
+                    "section",
+                    {
+                      class: "catalog-section",
+                      "aria-labelledby": "catalog-title",
+                      "aria-busy": busy.value,
+                    },
+                    [
+                      h("div", { class: "catalog-heading" }, [
+                        h(
+                          "h1",
+                          { id: "catalog-title" },
+                          searched.value ? "Результаты поиска" : category.value,
+                        ),
+                        !busy.value
+                          ? h(
+                              "span",
+                              { class: "video-count" },
+                              filtered.value.length + " видео",
+                            )
+                          : null,
+                      ]),
+                      searched.value
+                        ? h("div", { class: "search-summary" }, [
+                            h("p", [
+                              "По запросу ",
+                              h("strong", "«" + searched.value + "»"),
+                            ]),
+                            h("button", { onClick: reset }, [
+                              icon("close"),
+                              "Сбросить",
+                            ]),
+                          ])
+                        : null,
+                      busy.value
+                        ? h(
+                            "div",
+                            { class: "loading-state", role: "status" },
+                            "Загружаем видео…",
+                          )
+                        : error.value
+                          ? h("div", { class: "error-state" }, [
+                              h("p", { role: "alert" }, error.value),
+                              h(
+                                "button",
+                                { class: "action-button", onClick: load },
+                                "Повторить",
+                              ),
+                            ])
+                          : filtered.value.length
+                            ? h(
+                                "ul",
+                                { class: "video-grid" },
+                                filtered.value.map((item) => card(item)),
+                              )
+                            : h("div", { class: "empty-state" }, [
+                                h("span", { class: "empty-icon" }, [
+                                  icon("search"),
+                                ]),
+                                h(
+                                  "h2",
+                                  searched.value
+                                    ? "Ничего не найдено"
+                                    : "Здесь пока нет видео",
+                                ),
+                                h(
+                                  "p",
+                                  searched.value
+                                    ? "Попробуйте другое название или вернитесь ко всем видео."
+                                    : "Опубликованные ролики появятся здесь.",
+                                ),
+                                searched.value || category.value !== "Все видео"
+                                  ? h(
+                                      "button",
+                                      {
+                                        class: "action-button primary-button",
+                                        onClick: reset,
+                                      },
+                                      "Показать все видео",
+                                    )
+                                  : null,
+                              ]),
+                    ],
+                  ),
+                ],
+          ),
+        ],
+      );
   },
 });
