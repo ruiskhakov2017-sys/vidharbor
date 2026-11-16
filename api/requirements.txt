@@ -26,3 +26,4 @@ charset-normalizer==3.5.2
 idna==3.20
 urllib3==2.8.0
 certifi==2026.10.23
+prometheus-client==0.26.0

@@ -14,6 +14,7 @@ from .job_attempts import MAX_ATTEMPTS, execute_attempt
 from .management.commands.relay_outbox import QUEUE, connect
 from .models import Job
 from . import telemetry
+from . import metrics
 from opentelemetry.trace import SpanKind
 
 
@@ -49,6 +50,7 @@ def wait_for_database():
             with database.cursor() as cursor:
                 cursor.execute("SELECT 1")
         except DATABASE_ERRORS:
+            metrics.tick(False)
             if not paused:
                 logger.warning("PostgreSQL unavailable; pausing consumption")
             paused = True
@@ -189,7 +191,11 @@ def run_consumer(processor=None, *, delivery_handler=None, heartbeat=30, lock_ti
                             job_id=payload["job_id"], video_id=payload["video_id"], message_id=payload["message_id"],
                             attempt=payload["next_attempt_no"], generation=payload["generation"]):
                         telemetry.log_event("worker.received")
-                        process()
+                        metrics.active(1)
+                        try:
+                            process()
+                        finally:
+                            metrics.active(-1)
                         telemetry.log_event("worker.delivery_released")
 
                 threading.Thread(target=traced_process, daemon=True).start()
@@ -198,10 +204,12 @@ def run_consumer(processor=None, *, delivery_handler=None, heartbeat=30, lock_ti
             if not database_unavailable.is_set():
                 channel.basic_consume(queue=QUEUE, on_message_callback=on_delivery, auto_ack=False)
             while channel.is_open and not cancelled.is_set() and not database_unavailable.is_set():
+                metrics.tick(True)
                 connection.process_data_events(time_limit=1)
         except (pika.exceptions.AMQPError, OSError):
             logger.exception("Consumer connection failed")
         finally:
+            metrics.tick(False)
             cancelled.set()
             if connection is not None and connection.is_open:
                 try:

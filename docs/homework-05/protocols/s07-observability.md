@@ -15,4 +15,14 @@
 
 Артефакты до финального копирования evidence: `/workspace/.vidharbor-cloud/s07/t701-tests.log`, `t701-e2e.json`, `.trace.json`, `.logs.jsonl`. До успешного прогона исправлены права на bind-mounted Tempo config в managed cloud и конфликт имени http в новом тестовом harness. Эти первичные ошибки не считаются PASS.
 
-T702/T703 и итоговая документация ещё выполняются. GitHub CI этой ветки — Not Run: push/PR не разрешены. Реальных n8n/Sheets, публичного deployment и внешнего backup provider в работе нет.
+## T702: проверено на учебном стенде
+
+82 Django-теста PASS на первой сборке T702; после добавления проверки durable retry gauge отдельно 5/5 metrics tests PASS. Итоговый полный набор будет повторён после T703. Реальная проверка `smoke_s07.py --monitoring`: PASS, trace 87a0688daaa0942932f52de9b574024f. Пять authenticated scrape targets, API error/latency, FAILED/DLQ, тестовая webhook запись, firing-alert при остановке RabbitMQ, продолжение READY при остановке Tempo, отказ и восстановление datasource при остановке Prometheus. Исходный READY Job/Attempt/Outbox/original hash не изменились.
+
+Grafana 12.4.15 действительно отрисована Chrome 156.0.8078.79: 16 успешных datasource queries, без query errors и внешних browser requests. Log rotation: 6000 созданных записей → 2155 сохранённых, 3 файла. Все 10 контейнеров приложения используют json-file 1m × 3. Promtool: config PASS, 4 alert rules PASS. Retention: Tempo 1h; Prometheus 6h/128MB. Prometheus/Tempo/Grafana только loopback, OTLP и компонентные metrics без host ports; web блокирует metrics/internal.
+
+Managed Docker использует VFS и cgroup driver=none. Полный Grafana image упёрся в ENOSPC. Применён только облачный override: официальный полный Grafana 12.4.15 musl distribution с проверенным SHA-256 7e93f632ee9629f920231f52d98a86cba441a81dd0f3914d7a074b541e13ee06 смонтирован в собственный тестовый Alpine-контейнер. Это реальные Grafana server/assets, а не заглушка; стандартный pinned image в публикуемом Compose ещё требует GitHub-run. Старые тома не удалялись. Настроенные mem_limit/cpus в этой среде не являются измеренным kernel enforcement.
+
+Первичные ошибки нового harness (форма входа Grafana и query string datasource URL), proxy/NO_PROXY и права config исправлены; прежние FAIL-логи сохранены отдельно, не выдаются за PASS.
+
+T703 и итоговая документация ещё выполняются. GitHub CI этой ветки — Not Run: push/PR не разрешены. Реальных n8n/Sheets, публичного deployment и внешнего backup provider в работе нет.

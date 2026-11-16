@@ -1,8 +1,10 @@
 from django.urls import path
+from .metrics import http_metrics
 
 from . import accounts, health, public_videos, uploads, videos
 
 urlpatterns = [
+    path("internal/metrics", http_metrics),
     path("health/live", health.live, name="live"),
     path("health/ready", health.ready, name="ready"),
     path("api/auth/session", accounts.session),

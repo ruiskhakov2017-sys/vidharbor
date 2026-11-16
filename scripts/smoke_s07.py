@@ -62,6 +62,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--fixture', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
+    parser.add_argument('--monitoring', action='store_true', help='Also exercise real metrics, Grafana and isolated outages')
     args = parser.parse_args()
     project = os.environ.get('COMPOSE_PROJECT_NAME','')
     assert project.startswith('vidharbor-s07-'), 'Only a dedicated S07 test project is allowed'
@@ -82,11 +83,15 @@ def main():
             return {'X-CSRFToken':token}
         http(opener,base+'/api/auth/register',method='POST',data={'username':username,'password':password},headers=csrf(),expected=201)
         http(opener,base+'/api/auth/login',method='POST',data={'username':username,'password':password},headers=csrf())
-        raw,_=http(opener,base+'/api/uploads',method='POST',data={'title':title,'size':args.fixture.stat().st_size},headers=csrf(),expected=201)
-        upload_id=json.loads(raw)['id']
-        http(opener,base+f'/api/uploads/{upload_id}/content',method='PUT',data=args.fixture.read_bytes(),headers={**csrf(),'Content-Type':'application/octet-stream'})
-        raw,headers=http(opener,base+f'/api/uploads/{upload_id}/complete',method='POST',headers=csrf())
-        created=json.loads(raw);report['created']=created
+        def make_upload(value):
+            sensitive.append(value)
+            raw,_=http(opener,base+'/api/uploads',method='POST',data={'title':value,'size':args.fixture.stat().st_size},headers=csrf(),expected=201)
+            upload_id=json.loads(raw)['id'];uuid.UUID(upload_id)
+            http(opener,base+f'/api/uploads/{upload_id}/content',method='PUT',data=args.fixture.read_bytes(),headers={**csrf(),'Content-Type':'application/octet-stream'})
+            raw,headers=http(opener,base+f'/api/uploads/{upload_id}/complete',method='POST',headers=csrf())
+            return json.loads(raw),headers
+        created,headers=make_upload(title);report['created']=created
+        upload_id={key.lower():value for key,value in headers.items()}['x-correlation-id']
         lower={key.lower():value for key,value in headers.items()}
         assert lower['x-correlation-id']==upload_id
         trace_id=lower['traceparent'].split('-')[1];assert re.fullmatch('[0-9a-f]{32}',trace_id)
@@ -125,6 +130,9 @@ def main():
         assert persisted['attempts']==persisted['ready_events']==1
         assert persisted['sha256']==hashlib.sha256(args.fixture.read_bytes()).hexdigest()
         assert persisted['carrier']['traceparent'].split('-')[1]==trace_id
+        if args.monitoring:
+            from smoke_s07_monitoring import verify_monitoring
+            report['monitoring']=verify_monitoring(opener,guest,base,csrf,make_upload,created,args.report.parent)
         logs=compose('logs','--no-color','--no-log-prefix','api','upload','relay','worker')
         sensitive.extend(cookie.value for cookie in jar)
         for value in sensitive:assert value not in logs, 'Sensitive test data leaked into diagnostics'

@@ -6,6 +6,7 @@ from django.db import close_old_connections
 
 from vidharbor.models import ReadyEvent
 from vidharbor.notifications import Webhook, enqueue_existing, retry_manually, run_once, attach_existing_ready
+from vidharbor import metrics
 
 
 class Command(BaseCommand):
@@ -37,11 +38,13 @@ class Command(BaseCommand):
         except (OSError, ValueError):
             raise CommandError("Check webhook destination allowlist and secret file (at least 32 bytes).") from None
         while True:
+            metrics.start_component_server()
             close_old_connections()
             attach_existing_ready()
             for event_id in ReadyEvent.objects.filter(delivery__isnull=True).values_list("pk", flat=True)[:100]:
                 enqueue_existing(event_id)
             worked = run_once(webhook)
+            metrics.tick(True)
             if options["once"]:
                 return
             if not worked:

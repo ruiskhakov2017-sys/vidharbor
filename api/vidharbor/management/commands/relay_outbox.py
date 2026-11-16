@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from vidharbor.models import Outbox
 from vidharbor import telemetry
+from vidharbor import metrics
 from opentelemetry.trace import SpanKind
 
 
@@ -99,14 +100,17 @@ class Command(BaseCommand):
         if settings.RESTORE_MODE:
             raise CommandError("Restore mode: relay is paused")
         connection = None
+        metrics.start_component_server()
         while True:
             try:
                 close_old_connections()
                 if connection is None or connection.is_closed:
                     connection, channel = connect()
+                metrics.tick(True)
                 if not publish_next(channel):
                     connection.process_data_events(time_limit=1)
             except (pika.exceptions.AMQPError, OSError, DatabaseError, ValueError):
+                metrics.tick(False)
                 logger.exception("Outbox relay failed; the message remains available for retry")
                 if connection is not None and connection.is_open:
                     try:

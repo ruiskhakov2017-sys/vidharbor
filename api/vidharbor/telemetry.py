@@ -11,6 +11,7 @@ import os
 import re
 import sys
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -153,6 +154,8 @@ def tracer():
                     raise ValueError("internal_otlp_endpoint_required")
                 session = requests.Session(); session.trust_env = False
                 exporter = OTLPSpanExporter(endpoint=endpoint, timeout=1, session=session)
+                from .metrics import ObservedExporter
+                exporter = ObservedExporter(exporter)
                 _provider = TracerProvider(resource=Resource({"service.name": service()}), shutdown_on_exit=False)
                 _provider.add_span_processor(BatchSpanProcessor(exporter, max_queue_size=256,
                     max_export_batch_size=32, schedule_delay_millis=500, export_timeout_millis=1000))
@@ -214,6 +217,7 @@ class RequestTelemetry:
                 return self.get_response(request)
             with operation("HTTP " + method, parent={"traceparent": request.headers.get("traceparent", "")},
                            kind=SpanKind.SERVER) as span:
+                started = time.monotonic()
                 response = self.get_response(request)
                 route = getattr(getattr(request, "resolver_match", None), "route", None) or "unmatched"
                 if span:
@@ -221,7 +225,14 @@ class RequestTelemetry:
                     span.set_attribute("http.request.method", method)
                     span.set_attribute("http.route", route)
                     span.set_attribute("http.response.status_code", response.status_code)
+                    if response.status_code >= 500:
+                        from opentelemetry.trace import Status, StatusCode
+                        span.set_status(Status(StatusCode.ERROR, f"http_{response.status_code}"))
+                if enabled():
+                    from .metrics import observe_http
+                    observe_http(method,route,response.status_code,time.monotonic()-started)
                 log_event("http.completed", error_code=f"http_{response.status_code}" if response.status_code >= 400 else "",
+                          level=logging.ERROR if response.status_code >= 500 else logging.WARNING if response.status_code >= 400 else logging.INFO,
                           status_code=response.status_code)
                 response["X-Correlation-ID"] = _fields.get()["correlation_id"]
                 response["X-Request-ID"] = request_id
