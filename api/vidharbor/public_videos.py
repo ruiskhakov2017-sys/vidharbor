@@ -7,10 +7,13 @@ from django.views.decorators.http import require_GET, require_safe
 
 from .models import Video
 from .publication import SEGMENT, master_url
+from . import journal
 
 
 def published_videos():
-    return Video.objects.filter(state=Video.State.READY, published_generation__isnull=False)
+    entries, _ = journal.read_entries()
+    deleted = [entry["key"] for entry in entries if entry["kind"] == "delete"]
+    return Video.objects.filter(state=Video.State.READY, published_generation__isnull=False).exclude(pk__in=deleted)
 
 
 def watch_url(video_id):

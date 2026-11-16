@@ -61,6 +61,9 @@ jobs:
             -v "$RUNNER_TEMP/smoke_s04_supervisor.py:/review/smoke_s04_supervisor.py:ro" \
             upload python /review/smoke_s04_supervisor.py
 
+      - name: Check isolated restore safety guards
+        run: python3 scripts/test_s08.py
+
       - name: Show PostgreSQL logs on failure
         if: failure()
         run: docker compose --env-file .env.example logs --no-color --tail 80 db

@@ -1,0 +1,6 @@
+{"project": "vidharbor-completion", "step": "config"}
+{"project": "vidharbor-completion", "step": "container-ids"}
+{"project": "vidharbor-completion", "step": "running"}
+{"project": "vidharbor-completion", "step": "running"}
+{"project": "vidharbor-completion", "step": "container-ids"}
+{"stopped": [], "restart_disabled": 7, "receipt": "/workspace/.vidharbor-cloud/completion/restore-logs/vidharbor-completion-fence.json"}

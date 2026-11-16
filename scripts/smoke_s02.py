@@ -1,9 +1,15 @@
-"""Verify S02 against a running test Compose project with installed Chrome and Playwright."""
+"""Verify S02 on a disposable Compose stack with running relay and no workers.
+
+Requires Chrome and scripts/requirements-smoke.txt. Real video.jobs deliveries
+are inspected without ack and requeued; do not run against a shared queue.
+"""
 
 import argparse
 import hashlib
+import json
 import os
 import subprocess
+import textwrap
 import uuid
 from pathlib import Path
 
@@ -15,7 +21,7 @@ COMPOSE = ["docker", "compose", "--env-file", ".env.example", "exec", "-T"]
 
 
 def exec_service(*args):
-    return subprocess.check_output([*COMPOSE, *args], text=True, timeout=120).strip()
+    return subprocess.check_output([*COMPOSE, *args], text=True, timeout=30).strip()
 
 
 def register_and_sign_in(page, username, password):
@@ -122,19 +128,99 @@ def check_saved(source, upload_id, result):
     job_id = str(uuid.UUID(result["job_id"]))
     message_id = str(uuid.UUID(result["message_id"]))
     sql = (
-        "SELECT COUNT(DISTINCT j.id), COUNT(o.message_id), "
-        "COUNT(o.message_id) FILTER (WHERE o.sent_at IS NULL) "
+        "SELECT COUNT(DISTINCT j.id), COUNT(o.message_id) "
         "FROM vidharbor_job j LEFT JOIN vidharbor_outbox o ON o.job_id = j.id "
         f"WHERE j.video_id = '{video_id}'; "
         "SELECT j.id, o.message_id FROM vidharbor_job j "
         "JOIN vidharbor_outbox o ON o.job_id = j.id "
-        f"WHERE j.video_id = '{video_id}';"
+        f"WHERE j.video_id = '{video_id}'; "
+        "SELECT u.id, u.size, u.sha256, u.state FROM vidharbor_upload u "
+        "JOIN vidharbor_video v ON v.upload_id = u.id "
+        f"WHERE v.id = '{video_id}';"
     )
     user = os.getenv("VIDHARBOR_DB_USER", "vidharbor")
     database = os.getenv("VIDHARBOR_DB_NAME", "vidharbor")
     rows = exec_service("db", "psql", "-U", user, "-d", database, "-At", "-c", sql).splitlines()
-    assert rows == ["1|1|1", f"{job_id}|{message_id}"], rows
-    print(f"{source.name}: bytes={source.stat().st_size}, sha256={digest}, jobs=1, pending_outbox=1")
+    assert rows == [
+        "1|1", f"{job_id}|{message_id}",
+        f"{upload_id}|{source.stat().st_size}|{digest}|COMPLETE",
+    ], rows
+    print(f"{source.name}: bytes={source.stat().st_size}, sha256={digest}, jobs=1, outbox=1")
+
+
+def check_delivery(uploads):
+    """Inspect real RabbitMQ messages on a disposable stack with relay and no worker.
+
+    Keep deliveries unacked while inspecting; requeue all of them in finally.
+    Do not create another binding that could hide a broken production route.
+    """
+    code = textwrap.dedent('''
+        import json, os, sys, time
+        os.environ.setdefault("DJANGO_SETTINGS_MODULE", "vidharbor.settings")
+        import django
+        django.setup()
+        import pika
+        from django.conf import settings
+        from vidharbor.models import Outbox
+
+        expected = {}
+        for item in json.loads(sys.argv[1]):
+            entry = Outbox.objects.select_related("job__video").get(pk=item["message_id"])
+            assert str(entry.job_id) == item["job_id"]
+            assert str(entry.job.video_id) == item["video_id"]
+            assert str(entry.job.video.upload_id) == item["upload_id"]
+            assert entry.kind == "video.transcode.v1" and entry.attempt_no == 1
+            assert entry.payload == {
+                "version": 1, "message_id": item["message_id"],
+                "job_id": item["job_id"], "video_id": item["video_id"],
+                "generation": entry.job.video.generation, "next_attempt_no": 1,
+                "request_id": item["upload_id"], "trace_context": {},
+            }
+            expected[item["message_id"]] = entry.payload
+
+        connection = pika.BlockingConnection(pika.ConnectionParameters(
+            host=settings.RABBITMQ_HOST,
+            credentials=pika.PlainCredentials(settings.RABBITMQ_USER, settings.RABBITMQ_PASSWORD),
+            heartbeat=30, socket_timeout=3, stack_timeout=5, blocked_connection_timeout=5,
+        ))
+        channel = connection.channel()
+        last_tag = None
+        observed = set()
+        deadline = time.monotonic() + 20
+        try:
+            queue = channel.queue_declare(queue="video.jobs", passive=True)
+            assert queue.method.consumer_count == 0, "Use an isolated test stack without workers"
+            inspected = 0
+            while time.monotonic() < deadline and observed != set(expected):
+                method, properties, body = channel.basic_get(queue="video.jobs", auto_ack=False)
+                if method is None:
+                    connection.process_data_events(time_limit=0.2)
+                    continue
+                last_tag = method.delivery_tag
+                inspected += 1
+                assert inspected <= 1000, "Too many unrelated messages; use a fresh test stack"
+                if properties.message_id in expected:
+                    assert method.routing_key == "video.transcode.v1"
+                    assert properties.delivery_mode == 2
+                    assert properties.content_type == "application/json"
+                    assert json.loads(body) == expected[properties.message_id]
+                    observed.add(properties.message_id)
+            assert observed == set(expected), {"missing_message_ids": sorted(set(expected) - observed)}
+            while Outbox.objects.filter(pk__in=expected, sent_at__isnull=False).count() != len(expected):
+                assert time.monotonic() < deadline, "Relay did not confirm delivery in outbox"
+                connection.process_data_events(time_limit=0.2)
+            print(json.dumps({"delivered_message_ids": sorted(observed)}))
+        finally:
+            try:
+                if last_tag is not None and channel.is_open:
+                    channel.basic_nack(delivery_tag=last_tag, multiple=True, requeue=True)
+            finally:
+                connection.close()
+    ''')
+    result = json.loads(exec_service("api", "python", "-c", code, json.dumps(uploads)))
+    expected = sorted(item["message_id"] for item in uploads)
+    assert result == {"delivered_message_ids": expected}, result
+    print(f"RabbitMQ: original IDs and full payloads verified, persistent messages requeued: {expected}")
 
 
 def main():
@@ -177,6 +263,10 @@ def main():
                 assert context.request.get(f"{BASE_URL}/original/{upload_id}").status == 404
             check_saved(args.first_video, id_a, result_a)
             check_saved(args.second_video, id_b, result_b)
+            check_delivery([
+                {**result_a, "upload_id": id_a},
+                {**result_b, "upload_id": id_b},
+            ])
             page_a.get_by_role("button", name="Выйти").click()
             expect(page_a.get_by_role("heading", name="Вход")).to_be_visible()
             assert context_a.request.get(BASE_URL + "/api/videos").status == 401

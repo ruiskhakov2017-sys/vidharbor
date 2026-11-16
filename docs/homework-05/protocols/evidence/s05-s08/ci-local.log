@@ -1,0 +1,114 @@
+#1 [internal] load local bake definitions
+#1 reading from stdin 1.61kB done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from api.Dockerfile
+#2 transferring dockerfile: 1.23kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/python:3.13-alpine@sha256:1e1f6334529d1fb26a2ef619d7cffb30a7c7d7cc1cc7338ebee283a58d1aeaca
+#3 DONE 0.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 92B done
+#4 DONE 0.0s
+
+#5 [base 1/4] FROM docker.io/library/python:3.13-alpine@sha256:1e1f6334529d1fb26a2ef619d7cffb30a7c7d7cc1cc7338ebee283a58d1aeaca
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 transferring context: 12.30kB done
+#6 DONE 0.0s
+
+#7 [base 2/4] WORKDIR /app
+#7 CACHED
+
+#8 [base 3/4] COPY requirements.txt .
+#8 CACHED
+
+#9 [base 4/4] RUN --mount=type=secret,id=proxy_ca,required=true PIP_CERT=/run/secrets/proxy_ca pip install --no-cache-dir --disable-pip-version-check --only-binary=:all: -r requirements.txt     && install -d -o 65532 -g 65532 -m 0700         /var/lib/vidharbor /var/lib/vidharbor/uploads /var/lib/vidharbor/original /var/lib/vidharbor/locks         /var/lib/vidharbor-journal
+#9 CACHED
+
+#10 [app 1/3] COPY manage.py .
+#10 CACHED
+
+#11 [app 2/3] COPY vidharbor/ vidharbor/
+#11 DONE 3.9s
+
+#12 [app 3/3] RUN chmod -R a+rX /app
+#12 DONE 2.2s
+
+#13 [upload 1/3] RUN --mount=type=secret,id=proxy_ca,required=true SSL_CERT_FILE=/run/secrets/proxy_ca apk add --no-cache ffmpeg=8.1.3-r0 coreutils=9.11-r0
+#13 CACHED
+
+#14 [upload 2/3] COPY --from=app /app/ /app/
+#14 DONE 3.8s
+
+#15 [upload 3/3] RUN chmod -R a+rX /app
+#15 DONE 1.4s
+
+#16 exporting to image
+#16 exporting layers
+#16 exporting layers 0.3s done
+#16 writing image sha256:6bc44e4f1aa247a25c6eab533d61e516e0ff55453b1698336b31240bdeef9d03 done
+#16 naming to docker.io/library/vidharbor-ci-completion-upload done
+#16 DONE 0.3s
+
+#17 resolving provenance for metadata file
+#17 DONE 0.0s
+ vidharbor-ci-completion-upload  Built
+ Network vidharbor-ci-completion_default  Creating
+ Network vidharbor-ci-completion_default  Created
+ Volume vidharbor-ci-completion_postgres_data  Creating
+ Volume vidharbor-ci-completion_postgres_data  Created
+ Container vidharbor-ci-completion-db-1  Creating
+ Container vidharbor-ci-completion-db-1  Created
+ Container vidharbor-ci-completion-db-1  Starting
+ Container vidharbor-ci-completion-db-1  Started
+ Container vidharbor-ci-completion-db-1  Waiting
+ Container vidharbor-ci-completion-db-1  Healthy
+ Volume vidharbor-ci-completion_journal_data  Creating
+ Volume vidharbor-ci-completion_journal_data  Created
+ Volume vidharbor-ci-completion_media_data  Creating
+ Volume vidharbor-ci-completion_media_data  Created
+No changes detected
+Found 72 test(s).
+Creating test database for alias 'default'...
+System check identified no issues (0 silenced).
+........................................................................
+----------------------------------------------------------------------
+Ran 72 tests in 17.483s
+
+OK
+Destroying test database for alias 'default'...
+timeout (GNU coreutils) 9.11
+test_dead_monitor_does_not_unlock_live_writer (__main__.SupervisorTests.test_dead_monitor_does_not_unlock_live_writer) ... ok
+test_dead_worker_keeps_independent_deadline (__main__.SupervisorTests.test_dead_worker_keeps_independent_deadline) ... ok
+test_worker_death_then_group_kill_releases_same_lock (__main__.SupervisorTests.test_worker_death_then_group_kill_releases_same_lock) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 7.131s
+
+OK
+test_archive_rejects_parent_escape_and_links (__main__.RestoreSafetyTests.test_archive_rejects_parent_escape_and_links) ... ok
+test_fence_rejects_foreign_container (__main__.RestoreSafetyTests.test_fence_rejects_foreign_container) ... ok
+test_restore_refuses_live_old_writer (__main__.RestoreSafetyTests.test_restore_refuses_live_old_writer) ... ok
+test_restore_refuses_source_target_alias_before_commands (__main__.RestoreSafetyTests.test_restore_refuses_source_target_alias_before_commands) ... ok
+test_stopped_source_with_restart_policy_is_not_fenced (__main__.RestoreSafetyTests.test_stopped_source_with_restart_policy_is_not_fenced) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.005s
+
+OK
+ Container vidharbor-ci-completion-db-1  Stopping
+ Container vidharbor-ci-completion-db-1  Stopped
+ Container vidharbor-ci-completion-db-1  Removing
+ Container vidharbor-ci-completion-db-1  Removed
+ Network vidharbor-ci-completion_default  Removing
+ Volume vidharbor-ci-completion_journal_data  Removing
+ Volume vidharbor-ci-completion_postgres_data  Removing
+ Volume vidharbor-ci-completion_media_data  Removing
+ Volume vidharbor-ci-completion_media_data  Removed
+ Volume vidharbor-ci-completion_postgres_data  Removed
+ Volume vidharbor-ci-completion_journal_data  Removed
+ Network vidharbor-ci-completion_default  Removed

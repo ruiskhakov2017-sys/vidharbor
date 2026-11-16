@@ -11,6 +11,8 @@ urlpatterns = [
     path("api/auth/logout", accounts.sign_out),
     path("api/videos", uploads.videos),
     path("api/videos/<uuid:video_id>/rename", videos.rename),
+    path("api/videos/<uuid:video_id>/delete", videos.delete),
+    path("api/videos/<uuid:video_id>/jobs/<uuid:failed_job_id>/retry", videos.retry),
     path("api/catalog", public_videos.catalog),
     path("api/catalog/<uuid:video_id>", public_videos.detail),
     path("watch/<uuid:video_id>", public_videos.watch),

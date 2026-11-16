@@ -30,6 +30,8 @@ class Video(models.Model):
     class State(models.TextChoices):
         QUEUED = "QUEUED"
         READY = "READY"
+        DELETING = "DELETING"
+        DELETED = "DELETED"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     upload = models.OneToOneField(Upload, on_delete=models.PROTECT)
@@ -40,6 +42,7 @@ class Video(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     published_generation = models.PositiveIntegerField(null=True)
     ready_at = models.DateTimeField(null=True)
+    deleted_at = models.DateTimeField(null=True)
 
 
 class Job(models.Model):
@@ -49,11 +52,15 @@ class Job(models.Model):
         RETRY_WAIT = "RETRY_WAIT"
         FAILED = "FAILED"
         SUCCEEDED = "SUCCEEDED"
+        CANCELLED = "CANCELLED"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     video = models.ForeignKey(Video, on_delete=models.PROTECT)
     generation = models.PositiveIntegerField()
     state = models.CharField(max_length=12, choices=State, default=State.QUEUED)
+    retry_of = models.OneToOneField(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="manual_retry",
+    )
 
     class Meta:
         constraints = [
@@ -94,3 +101,52 @@ class Outbox(models.Model):
                 fields=["job", "kind", "attempt_no"], name="unique_outbox_attempt"
             )
         ]
+
+
+class ReadyEvent(models.Model):
+    """Immutable publication snapshot, supplied by S04 in its READY transaction."""
+
+    event_id = models.UUIDField(primary_key=True, editable=False)
+    video = models.ForeignKey(Video, on_delete=models.PROTECT)
+    generation = models.PositiveIntegerField()
+    source = models.OneToOneField(Outbox, null=True, on_delete=models.PROTECT, related_name="ready_snapshot")
+    sheet_row = models.PositiveIntegerField(unique=True)
+    payload = models.JSONField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["video", "generation"], name="unique_ready_generation"),
+            models.CheckConstraint(condition=models.Q(sheet_row__gte=2), name="ready_row_after_header"),
+        ]
+
+
+class Delivery(models.Model):
+    class State(models.TextChoices):
+        PENDING = "PENDING"
+        SENDING = "SENDING"
+        WRITTEN = "WRITTEN"
+        FAILED = "FAILED"
+        BLOCKED = "BLOCKED"
+        CANCELLED = "CANCELLED"
+
+    event = models.OneToOneField(ReadyEvent, primary_key=True, on_delete=models.PROTECT)
+    state = models.CharField(max_length=12, choices=State, default=State.PENDING)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    total_attempts = models.PositiveIntegerField(default=0)
+    started_at = models.DateTimeField(null=True)
+    due_at = models.DateTimeField(default=timezone.now)
+    lease_until = models.DateTimeField(null=True)
+    token = models.UUIDField(null=True)
+    reason = models.CharField(max_length=80, blank=True)
+
+
+class ReceiverRow(models.Model):
+    """Durable, serialized rows for the isolated TEST receiver, never Sheets."""
+
+    number = models.PositiveIntegerField(primary_key=True)
+    event_id = models.UUIDField(null=True)
+    payload = models.JSONField(null=True)
+
+
+class SheetAllocator(models.Model):
+    next_row = models.PositiveBigIntegerField(default=2)

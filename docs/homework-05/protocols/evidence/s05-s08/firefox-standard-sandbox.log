@@ -1,0 +1,15 @@
+2026-11-15T14:28:13.856Z pw:browser <launching> /workspace/.cache/vidharbor-browsers/playwright/firefox-1572/firefox/firefox -no-remote -headless -profile /tmp/playwright_firefoxdev_profile-pB2h1O -juggler-pipe -silent
+2026-11-15T14:28:13.860Z pw:browser <launched> pid=150128
+2026-11-15T14:28:13.904Z pw:browser [pid=150128][err] *** You are running in headless mode.
+2026-11-15T14:28:13.987Z pw:browser [pid=150128][err] JavaScript warning: resource://services-settings/Utils.sys.mjs, line 125: unreachable code after return statement
+2026-11-15T14:28:14.238Z pw:browser [pid=150128][out]
+2026-11-15T14:28:14.238Z pw:browser [pid=150128][out] Juggler listening to the pipe
+2026-11-15T14:28:15.535Z pw:browser [pid=150128][out] console.error: (new NotFoundError("Could not find fa0fc42c-d91d-fca7-34eb-806ff46062dc in cache or dump", "resource://services-settings/Attachments.sys.mjs", 48))
+2026-11-15T14:28:15.536Z pw:browser [pid=150128][out] console.warn: "Unable to find the attachment for" "fa0fc42c-d91d-fca7-34eb-806ff46062dc"
+PASS native Firefox 159.0
+2026-11-15T14:28:18.305Z pw:browser [pid=150128] <gracefully close start>
+2026-11-15T14:28:18.363Z pw:browser [pid=150128][err] JavaScript error: chrome://juggler/content/Helper.js, line 82: NS_ERROR_FAILURE: Component returned failure code: 0x80004005 (NS_ERROR_FAILURE) [nsIWebProgress.removeProgressListener]
+2026-11-15T14:28:18.784Z pw:browser [pid=150128] <process did exit: exitCode=0, signal=null>
+2026-11-15T14:28:18.784Z pw:browser [pid=150128] starting temporary directories cleanup
+2026-11-15T14:28:18.795Z pw:browser [pid=150128] finished temporary directories cleanup
+2026-11-15T14:28:18.795Z pw:browser [pid=150128] <gracefully close end>

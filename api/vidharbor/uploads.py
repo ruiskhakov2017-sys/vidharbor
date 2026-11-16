@@ -42,7 +42,7 @@ def describe_upload(upload):
 @never_cache
 @require_author
 def videos(request):
-    videos = cabinet_videos().filter(owner=request.user).order_by("-created_at")
+    videos = cabinet_videos().filter(owner=request.user).exclude(state=Video.State.DELETED).order_by("-created_at")
     return JsonResponse({"videos": [cabinet_item(video) for video in videos]})
 
 

@@ -24,6 +24,8 @@ createApp({
     const pending = ref<string>();
     const editing = ref<string>();
     const editedTitle = ref("");
+    // Keep the original failed job across an uncertain HTTP outcome, even if polls change it.
+    const pendingRetries = ref<Record<string, string>>({});
 
     let videoListRequest = 0;
 
@@ -54,7 +56,7 @@ createApp({
     onMounted(refreshSession);
     const statusPoll = window.setInterval(() => {
       if (session.value?.username && !busy.value &&
-          videos.value.some((video) => ["QUEUED", "PROCESSING", "RETRY_WAIT"].includes(video.state))) {
+          videos.value.some((video) => ["QUEUED", "PROCESSING", "RETRY_WAIT", "DELETING"].includes(video.state))) {
         void loadVideos().catch(() => { /* Retry on the next poll. */ });
       }
     }, 3000);
@@ -151,6 +153,7 @@ createApp({
         pending.value = undefined;
         editing.value = undefined;
         editedTitle.value = "";
+        pendingRetries.value = {};
       });
     }
 
@@ -159,6 +162,48 @@ createApp({
       editedTitle.value = video.title;
       error.value = "";
       status.value = "";
+    }
+
+    function deleteVideo(video: Video) {
+      const csrf = session.value?.csrf_token;
+      if (!csrf || busy.value || !window.confirm("Удалить видео и его файлы? Ссылки перестанут работать.")) return;
+      return run(async () => {
+        const result = await api<{ state: string }>("/api/videos/" + video.id + "/delete", { csrf });
+        ++videoListRequest;
+        videos.value = result.state === "DELETED"
+          ? videos.value.filter((item) => item.id !== video.id)
+          : videos.value.map((item) => item.id === video.id ? { ...item, state: result.state } : item);
+        editing.value = undefined;
+        delete pendingRetries.value[video.id];
+        status.value = result.state === "DELETED" ? "Видео удалено" : "Доступ закрыт. Файлы удаляются.";
+      });
+    }
+
+    function retryProcessing(video: Video) {
+      const csrf = session.value?.csrf_token;
+      const failedJob = pendingRetries.value[video.id] ?? video.job_id;
+      if (!csrf || !failedJob || busy.value) return;
+      pendingRetries.value[video.id] = failedJob;
+      return run(async () => {
+        status.value = "";
+        try {
+          const result = await api<{ video: Video }>(
+            "/api/videos/" + video.id + "/jobs/" + failedJob + "/retry", { csrf },
+          );
+          ++videoListRequest;
+          videos.value = videos.value.map((item) => item.id === video.id ? result.video : item);
+          delete pendingRetries.value[video.id];
+          status.value = "Запрос повтора принят";
+        } catch (failure) {
+          if (failure instanceof ApiError && failure.status >= 400 && failure.status < 500 && !failure.retryAfter) {
+            delete pendingRetries.value[video.id];
+          }
+          if (!(failure instanceof ApiError)) {
+            throw new Error("Ответ сервиса не получен. Нажмите «Повторить запрос», чтобы узнать результат.");
+          }
+          throw failure;
+        }
+      });
     }
 
     function submitRename(event: Event) {
@@ -232,7 +277,14 @@ createApp({
             h("strong", video.title),
             video.state === "READY"
               ? h("a", { href: video.watch_url }, "Готово · Смотреть")
-              : h("span", video.state === "FAILED" ? "Не удалось обработать" : "Обрабатывается"),
+              : h("span", video.state === "FAILED" ? "Не удалось обработать"
+                : video.state === "DELETING" ? "Удаляется" : "Обрабатывается"),
+            video.state === "FAILED" && video.retry_advice ? h("p", video.retry_advice) : null,
+            video.can_retry || pendingRetries.value[video.id]
+              ? h("button", {
+                type: "button", disabled: busy.value, onClick: () => retryProcessing(video),
+              }, pendingRetries.value[video.id] ? "Повторить запрос" : "Повторить обработку")
+              : null,
             editing.value === video.id
               ? h("form", { onSubmit: submitRename, "aria-label": "Переименование видео" }, [
                 h("label", ["Новое название", h("input", {
@@ -249,9 +301,11 @@ createApp({
                 ]),
               ])
               : h("button", {
-                type: "button", class: "secondary", disabled: busy.value,
+                type: "button", class: "secondary", disabled: busy.value || video.state === "DELETING",
                 onClick: () => startRename(video),
               }, "Переименовать"),
+            h("button", { type: "button", disabled: busy.value || video.state === "DELETING",
+              onClick: () => deleteVideo(video) }, "Удалить"),
           ])))
           : h("p", "Здесь появятся загруженные видео."),
       ]);

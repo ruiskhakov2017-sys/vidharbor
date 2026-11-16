@@ -1,0 +1,10 @@
+PASS actionlint: both workflows
+PASS bash syntax: every workflow run block
+PASS local Markdown file links in changed documents
+PASS S08: nine ordered sections retained
+PASS secret scan: actual temporary secret values/private-key markers/session files absent
+PASS Compose config
+PASS git diff --check
+PASS temporary CI containers/volumes/secrets removed
+{"status":"ready","checks":{"postgres":true,"rabbitmq":true}}
+PASS restored demo readiness

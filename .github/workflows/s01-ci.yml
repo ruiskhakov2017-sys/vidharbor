@@ -37,7 +37,10 @@ jobs:
           docker compose --env-file .env.example up --build -d --wait --wait-timeout 180
 
       - name: Check page and dependency failures
-        run: python3 scripts/smoke_s01.py
+        run: |
+          python3 -m venv "$RUNNER_TEMP/vidharbor-smoke-venv"
+          "$RUNNER_TEMP/vidharbor-smoke-venv/bin/pip" install --disable-pip-version-check --only-binary=:all: -r scripts/requirements-smoke.txt
+          "$RUNNER_TEMP/vidharbor-smoke-venv/bin/python" scripts/smoke_s01.py
 
       - name: Show service logs on failure
         if: failure()

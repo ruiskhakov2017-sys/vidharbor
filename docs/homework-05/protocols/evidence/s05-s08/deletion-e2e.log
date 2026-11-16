@@ -1,0 +1,11 @@
+ Container vidharbor-completion-cleanup-1  Stopping
+ Container vidharbor-completion-cleanup-1  Stopped
+ Container vidharbor-completion-cleanup-1  Restarting
+ Container vidharbor-completion-cleanup-1  Started
+ Container vidharbor-completion-db-1  Waiting
+ Container vidharbor-completion-db-1  Healthy
+ Container vidharbor-completion-migrate-1  Starting
+ Container vidharbor-completion-migrate-1  Started
+ Container vidharbor-completion-migrate-1  Waiting
+ Container vidharbor-completion-migrate-1  Exited
+{"status": "PASS", "first_delete": {"id": "e472a90e-62ad-4162-82fd-7fb35f1b55ea", "state": "DELETING"}, "after_worker_cancel_before_cleanup_restart": {"state": "DELETING", "generation": 2, "original_exists": true, "ready_events": 0, "job_state": "CANCELLED"}, "final": {"state": "DELETED", "generation": 2, "original_exists": false, "processing_exists": false, "ready_exists": false, "deletion_entries": 1}, "video_id": "e472a90e-62ad-4162-82fd-7fb35f1b55ea"}

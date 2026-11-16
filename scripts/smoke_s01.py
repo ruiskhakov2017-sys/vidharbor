@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import time
 from urllib.error import HTTPError, URLError
@@ -46,19 +47,26 @@ def check_health(label, *, postgres=True, rabbitmq=True):
 
 
 def check_page():
-    browser = subprocess.run(
-        [
-            os.getenv("VIDHARBOR_CHROME", "google-chrome"), "--headless", "--no-sandbox",
-            "--disable-dev-shm-usage", "--virtual-time-budget=6000",
-            "--disable-background-networking", "--dump-dom", BASE_URL + "/",
-        ],
-        capture_output=True,
-        encoding="utf-8",
-        check=True,
-        timeout=30,
-    )
-    if 'data-testid="auth-screen"' not in browser.stdout:
-        raise RuntimeError("Chrome did not render the Vue sign-in screen")
+    from playwright.sync_api import expect, sync_playwright
+
+    chrome = os.getenv("VIDHARBOR_CHROME") or shutil.which("google-chrome") or shutil.which("chromium")
+    if not chrome:
+        raise RuntimeError("Install Chrome/Chromium or set VIDHARBOR_CHROME")
+    # Use an isolated automation context and wait for Vue itself. CLI --dump-dom
+    # depends on browser startup/session behaviour and can hang after rendering.
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            executable_path=chrome, args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
+        try:
+            page = browser.new_page()
+            response = page.goto(BASE_URL + "/", wait_until="domcontentloaded", timeout=30000)
+            if response is None or response.status != 200:
+                raise RuntimeError("The sign-in page did not return HTTP 200")
+            expect(page.get_by_test_id("auth-screen")).to_be_visible(timeout=10000)
+            print(f"Chrome {browser.version}: HTTP 200 and visible Vue auth-screen", flush=True)
+        finally:
+            browser.close()
     print("Chrome rendered the Vue sign-in screen.", flush=True)
 
 

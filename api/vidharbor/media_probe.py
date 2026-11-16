@@ -6,6 +6,10 @@ class InvalidVideo(ValueError):
     pass
 
 
+class ProbeTimeout(InvalidVideo):
+    """The probe budget expired; this does not establish a corrupt original."""
+
+
 def ebml_document_type(path):
     # Matroska and WebM share one FFmpeg demuxer. Read their EBML DocType.
     with path.open("rb") as source:
@@ -60,7 +64,7 @@ def probe_video(path):
             timeout=20,
         )
     except subprocess.TimeoutExpired as exc:
-        raise InvalidVideo("Проверка видео не завершилась вовремя.") from exc
+        raise ProbeTimeout("Проверка видео не завершилась вовремя.") from exc
     if result.returncode or result.stderr:
         raise InvalidVideo("Не удалось прочитать контейнер или потоки видео.")
 

@@ -1,0 +1,18 @@
+Crash before commit and after commit; job=bea72524-9436-4c7a-967d-2dcc517a4cf4 command=f0960025-21d7-40af-8645-694e42267b29
+READY job=bea72524-9436-4c7a-967d-2dcc517a4cf4 event=a1826600-7907-4468-8f62-5f5de755d18b attempts=[('SUCCEEDED', '')] playlist_url=http://127.0.0.1:8116/media/773f255e-7bd8-42fa-a090-10f57615e6b3/master.m3u8
+READY job=bea72524-9436-4c7a-967d-2dcc517a4cf4 event=a1826600-7907-4468-8f62-5f5de755d18b attempts=[('SUCCEEDED', '')] playlist_url=http://127.0.0.1:8116/media/773f255e-7bd8-42fa-a090-10f57615e6b3/master.m3u8
+Rename before commit: 404; recovered same manifest; post-commit duplicate acked; event unchanged.
+READY job=c582693b-8d15-4356-af8b-dd2145ff701c event=7bc66d9a-b3f2-43a8-ad82-602a7967bc4f attempts=[('RETRY', 'worker_lost'), ('SUCCEEDED', '')] playlist_url=http://127.0.0.1:8116/media/bbebd3f4-e1ac-47c1-ab71-72e73f24e775/master.m3u8
+Missing segment: remained 404, rejected manifest, re-encoded; command=6a5b3494-c812-4356-ac77-7783b41eb52f
+READY job=828a5008-07e5-4b24-9bff-1d676ce716c4 event=5fe336c7-992e-458b-96d1-602ee7b19057 attempts=[('SUCCEEDED', '')] playlist_url=http://127.0.0.1:8116/media/81c255d5-b712-4ae4-a6dc-5a2172a6a457/master.m3u8
+PostgreSQL connection terminated at publication: same worker PID=179 recovered.
+Catalog answered 200 during FFmpeg in 0.030s
+READY job=02d4f780-1c48-4ba5-a322-f490d9dff836 event=7f2742c3-e429-497a-af58-683364e836bb attempts=[('RETRY', 'worker_lost'), ('SUCCEEDED', '')] playlist_url=http://127.0.0.1:8116/media/c72364bd-2c0f-485b-b542-f8bb2b6f7bee/master.m3u8
+Surviving FFmpeg held flock and wrote 1272572 -> 2647040 bytes; next worker waited; command=fb4e9d20-f47d-4bf0-84d0-e504ede4e3db
+READY job=5e9ca1eb-7181-4420-8b05-af0673cbe16b event=a14693b7-53b8-4445-af34-e3aeb6b11e7f attempts=[('RETRY', 'channel_lost'), ('SUCCEEDED', '')] playlist_url=http://127.0.0.1:8116/media/e81ad918-d1dc-4ae0-a26b-e656685050ca/master.m3u8
+Broker channel loss stopped the old encode; resumed with a new attempt; command=aba14875-cc7a-4bb9-8eb7-4298b9c6e58c
+FFmpeg deadline: one failed attempt, no publication; command=3f99063c-0435-42b4-b143-4d4f688189cb
+Invalid source: one failed attempt, 404, DLQ message=08493435-8021-435f-9759-83b0508fc559
+READY job=3b966db8-7ad9-4dac-a1b0-2cabc0a748f3 event=d1c70c7f-6d2b-4516-b29d-f9b9f438c3b6 attempts=[('SUCCEEDED', '')] playlist_url=http://127.0.0.1:8116/media/8ace8adf-f1c6-464e-b1b1-c01a6d61c988/master.m3u8
+READY job=3b966db8-7ad9-4dac-a1b0-2cabc0a748f3 event=d1c70c7f-6d2b-4516-b29d-f9b9f438c3b6 attempts=[('SUCCEEDED', '')] playlist_url=http://127.0.0.1:8116/media/8ace8adf-f1c6-464e-b1b1-c01a6d61c988/master.m3u8
+Ack timeout: 121.9s to redelivery; unchanged event; command=e08b746d-8d62-4dcc-8700-3f0425b7919a

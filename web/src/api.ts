@@ -1,5 +1,8 @@
 export type Session = { username: string | null; csrf_token: string };
-export type Video = { id: string; title: string; state: string; watch_url?: string };
+export type Video = {
+  id: string; title: string; state: string; watch_url?: string;
+  job_id?: string; can_retry?: boolean; retry_advice?: string;
+};
 
 export class ApiError extends Error {
   constructor(

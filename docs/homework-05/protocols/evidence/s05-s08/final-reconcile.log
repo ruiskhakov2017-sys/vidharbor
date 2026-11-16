@@ -1,0 +1,11 @@
+{"project": "vidharbor-completion", "step": "config"}
+{"project": "vidharbor-completion", "step": "container-ids"}
+{"project": "vidharbor-restore-completion", "step": "config"}
+{"project": "vidharbor-restore-completion", "step": "running"}
+{"project": "vidharbor-restore-completion", "step": "quiesce"}
+{"project": "vidharbor-restore-completion", "step": "running"}
+{"project": "vidharbor-restore-completion", "step": "recovery-reconcile-apply"}
+{"project": "vidharbor-restore-completion", "step": "recovery-reconcile-apply"}
+{"status": "PASS", "same_repeated_reconciliation": true, "result": {"actions": [], "journal_head": {"sequence": 6, "digest": "62dd22bdc41db089f73dfcfc84f6674bf2206eb5ba4ffceaa553dee21afe9ac1"}, "allocator_floor": 5, "applied": true, "external_sheets": "Not Run; notifier stays disabled"}}
+{"project": "vidharbor-restore-completion", "step": "config"}
+{"project": "vidharbor-restore-completion", "step": "resume-after-final-reconcile"}
