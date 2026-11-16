@@ -1,6 +1,7 @@
 """A manual retry is a durable successor of one specific failed job."""
 
 import uuid
+from . import telemetry
 
 from django.db import transaction
 
@@ -68,9 +69,11 @@ def require_failed_source(video, source):
         raise RetryRejected(message)
 
 
+@telemetry.traced("job.retry")
 def retry_original(source):
     # A receipt lookup precedes current-generation/state checks. Replays never start work.
     video = Video.objects.get(pk=source.video_id)
+    telemetry.identify(correlation_id=video.upload_id, upload_id=video.upload_id, video_id=video.id)
     from .journal import is_deleted
     if is_deleted(video.id):
         raise RetryRejected("Видео удалено или удаляется.")
@@ -115,7 +118,7 @@ def retry_original(source):
                 payload={
                     "version": 1, "message_id": str(message_id), "job_id": str(job.id),
                     "video_id": str(video.id), "generation": job.generation, "next_attempt_no": 1,
-                    "request_id": str(source.id), "trace_context": {},
+                    "request_id": str(source.id), "trace_context": telemetry.current_context(),
                 },
             )
             return job, True

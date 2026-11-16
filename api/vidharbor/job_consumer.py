@@ -13,6 +13,8 @@ from django.db import InterfaceError, OperationalError, close_old_connections, c
 from .job_attempts import MAX_ATTEMPTS, execute_attempt
 from .management.commands.relay_outbox import QUEUE, connect
 from .models import Job
+from . import telemetry
+from opentelemetry.trace import SpanKind
 
 
 logger = logging.getLogger(__name__)
@@ -164,10 +166,12 @@ def run_consumer(processor=None, *, delivery_handler=None, heartbeat=30, lock_ti
                         delivery_connection.add_callback_threadsafe(complete)
                     except DATABASE_ERRORS:
                         database_unavailable.set()
+                        telemetry.log_event("worker.paused", error_code="postgres_unavailable", level=logging.ERROR)
                         logger.warning("PostgreSQL connection lost; delivery remains unacknowledged", exc_info=True)
                     except pika.exceptions.ConnectionWrongStateError:
                         logger.info("Delivery connection closed for message %s", payload["message_id"])
                     except Exception:
+                        telemetry.log_event("worker.failed", error_code="delivery_incomplete", level=logging.ERROR)
                         logger.exception("Could not finish job; delivery remains unacknowledged")
                         try:
                             delivery_connection.add_callback_threadsafe(abandon)
@@ -176,7 +180,19 @@ def run_consumer(processor=None, *, delivery_handler=None, heartbeat=30, lock_ti
                     finally:
                         close_old_connections()
 
-                threading.Thread(target=process, daemon=True).start()
+                def traced_process():
+                    headers = getattr(properties, "headers", None) or {}
+                    parent = telemetry.carrier(headers) or payload.get("trace_context", {})
+                    correlation = headers.get("x-vidharbor-correlation-id", payload.get("request_id"))
+                    with telemetry.operation("worker.process", parent=parent, kind=SpanKind.CONSUMER,
+                            correlation_id=correlation, upload_id=correlation,
+                            job_id=payload["job_id"], video_id=payload["video_id"], message_id=payload["message_id"],
+                            attempt=payload["next_attempt_no"], generation=payload["generation"]):
+                        telemetry.log_event("worker.received")
+                        process()
+                        telemetry.log_event("worker.delivery_released")
+
+                threading.Thread(target=traced_process, daemon=True).start()
 
             channel.add_on_cancel_callback(lambda _frame: cancelled.set())
             if not database_unavailable.is_set():

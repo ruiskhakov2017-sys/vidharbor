@@ -1,0 +1,29 @@
+auth_enabled: false
+server:
+  http_listen_port: 3200
+  log_format: json
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+ingester:
+  max_block_duration: 1m
+compactor:
+  compaction:
+    block_retention: 1h
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/blocks
+    wal:
+      path: /var/tempo/wal
+overrides:
+  defaults:
+    ingestion:
+      rate_limit_bytes: 1000000
+      burst_size_bytes: 2000000
+    global:
+      max_bytes_per_trace: 5000000

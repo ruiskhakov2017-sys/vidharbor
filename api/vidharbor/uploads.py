@@ -24,6 +24,7 @@ from .storage import (
     sync_directory,
 )
 from .videos import cabinet_item, cabinet_videos
+from . import telemetry
 
 
 class IncompleteBody(ValueError):
@@ -71,6 +72,8 @@ def create_upload(request):
     if not has_space(size):
         return error("На диске недостаточно места для загрузки.", 507)
     upload = Upload.objects.create(owner=request.user, title=title.strip(), expected_size=size)
+    telemetry.identify(upload_id=upload.id, correlation_id=upload.id)
+    telemetry.log_event("upload.created", upload_id=upload.id)
     return JsonResponse(describe_upload(upload), status=201)
 
 
@@ -145,11 +148,13 @@ def completed_result(job):
     )
 
 
+@telemetry.traced("job.create")
 @transaction.atomic
 def queue_video(upload):
     video = Video.objects.create(upload=upload, owner=upload.owner, title=upload.title)
     job = Job.objects.create(video=video, generation=video.generation)
     message_id = uuid.uuid4()
+    telemetry.identify(upload_id=upload.id, correlation_id=upload.id, video_id=video.id, job_id=job.id, message_id=message_id)
     Outbox.objects.create(
         message_id=message_id,
         job=job,
@@ -163,11 +168,12 @@ def queue_video(upload):
             "generation": job.generation,
             "next_attempt_no": 1,
             "request_id": str(upload.id),
-            "trace_context": {},
+            "trace_context": telemetry.current_context(),
         },
     )
     upload.state = Upload.State.COMPLETE
     upload.save(update_fields=["state", "updated_at"])
+    telemetry.log_event("job.created")
     return job
 
 

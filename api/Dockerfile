@@ -7,7 +7,7 @@ RUN pip install --no-cache-dir --disable-pip-version-check --only-binary=:all: -
     && install -d -o 65532 -g 65532 -m 0700 \
         /var/lib/vidharbor /var/lib/vidharbor/uploads /var/lib/vidharbor/original /var/lib/vidharbor/locks \
         /var/lib/vidharbor-journal
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--threads", "2", "--timeout", "12", "vidharbor.wsgi:application"]
+CMD ["gunicorn", "--config", "python:vidharbor.gunicorn_config", "--bind", "0.0.0.0:8000", "--workers", "1", "--threads", "2", "--timeout", "12", "vidharbor.wsgi:application"]
 
 FROM base AS app
 COPY manage.py .

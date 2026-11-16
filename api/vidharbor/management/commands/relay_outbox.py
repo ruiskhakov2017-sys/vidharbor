@@ -9,6 +9,8 @@ from django.db import DatabaseError, close_old_connections, transaction
 from django.utils import timezone
 
 from vidharbor.models import Outbox
+from vidharbor import telemetry
+from opentelemetry.trace import SpanKind
 
 
 logger = logging.getLogger(__name__)
@@ -61,19 +63,29 @@ def publish_next(channel):
             return False
         if entry.payload.get("message_id") != str(entry.message_id):
             raise ValueError(f"Outbox message ID mismatch: {entry.message_id}")
-        channel.basic_publish(
-            exchange=EXCHANGE if entry.kind == ROUTING_KEY else ERROR_EXCHANGE,
-            routing_key=entry.kind,
-            body=json.dumps(entry.payload, separators=(",", ":")).encode("utf-8"),
-            properties=pika.BasicProperties(
-                content_type="application/json",
-                delivery_mode=2,
-                message_id=str(entry.message_id),
-            ),
-            mandatory=True,
-        )
-        entry.sent_at = timezone.now()
-        entry.save(update_fields=["sent_at"])
+        parent = entry.payload.get("trace_context", {})
+        if telemetry.enabled() and not parent:
+            original = Outbox.objects.filter(job_id=entry.job_id, kind=ROUTING_KEY).order_by("attempt_no").first()
+            parent = original.payload.get("trace_context", {}) if original else {}
+        with telemetry.operation("outbox.publish", parent=parent, kind=SpanKind.PRODUCER,
+                job_id=entry.job_id, message_id=entry.pk, video_id=entry.job.video_id,
+                correlation_id=entry.job.video.upload_id, upload_id=entry.job.video.upload_id):
+            headers = telemetry.current_context()
+            if headers:
+                headers["x-vidharbor-correlation-id"] = str(entry.job.video.upload_id)
+            channel.basic_publish(
+                exchange=EXCHANGE if entry.kind == ROUTING_KEY else ERROR_EXCHANGE,
+                routing_key=entry.kind,
+                body=json.dumps(entry.payload, separators=(",", ":")).encode("utf-8"),
+                properties=pika.BasicProperties(
+                    content_type="application/json", delivery_mode=2,
+                    message_id=str(entry.message_id), headers=headers or None,
+                ),
+                mandatory=True,
+            )
+            entry.sent_at = timezone.now()
+            entry.save(update_fields=["sent_at"])
+            telemetry.log_event("outbox.published")
     logger.info("Published outbox message %s", entry.message_id)
     return True
 
