@@ -145,10 +145,13 @@ def main():
         assert persisted['attempts']==persisted['ready_events']==1
         assert persisted['sha256']==hashlib.sha256(args.fixture.read_bytes()).hexdigest()
         assert persisted['carrier']['traceparent'].split('-')[1]==trace_id
+        # Keep evidence before any fault scenario can replace/rotate a container.
+        prior_logs=compose('logs','--no-color','--no-log-prefix','api','upload','relay','worker')
         if args.monitoring:
             from smoke_s07_monitoring import verify_monitoring
             report['monitoring']=verify_monitoring(opener,guest,base,csrf,make_upload,created,args.report.parent)
-        logs=compose('logs','--no-color','--no-log-prefix','api','upload','relay','worker')
+        current_logs=compose('logs','--no-color','--no-log-prefix','api','upload','relay','worker')
+        logs='\n'.join(dict.fromkeys((prior_logs+'\n'+current_logs).splitlines()))
         sensitive.extend(cookie.value for cookie in jar)
         for value in sensitive:assert value not in logs, 'Sensitive test data leaked into diagnostics'
         records=[json.loads(line) for line in logs.splitlines() if line.strip()]

@@ -23,7 +23,8 @@ def wait_for(function,label,seconds=45):
 
 
 def start(service):
-    compose('up','-d','--no-deps','--wait','--wait-timeout','120',service)
+    # Restart the exact stopped container, preserving its logs and configuration.
+    compose('start','--wait','--wait-timeout','120',service)
 
 
 def verify_monitoring(opener,guest,base,csrf,make_upload,created,output):
