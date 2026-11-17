@@ -90,6 +90,10 @@ jobs:
             -v "$RUNNER_TEMP/video-ready.json:/review/video-ready.json:ro" \
             upload python - --settings-file /review/public_settings.py --payload /review/video-ready.json < scripts/check_public_settings.py
 
+      - name: Collect bounded diagnostics on failure
+        if: failure()
+        run: python3 scripts/diagnose_s07.py --report s07-evidence/diagnostics.json
+
       - name: Check evidence before upload
         id: safe_evidence
         if: always()
