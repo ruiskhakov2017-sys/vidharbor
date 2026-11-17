@@ -12,7 +12,9 @@ from prometheus_client.parser import text_string_to_metric_families
 from .metrics import QuietHandler, authorized
 from .telemetry import log_event
 
-DEADLINE = 2.0
+# Includes interpreter/Django startup under an enforced 1-CPU cgroup. Scrapes
+# never wait for this budget: they read the already completed cached snapshot.
+DEADLINE = 5.0
 INTERVAL = 5.0
 MAX_AGE = 15.0
 MAX_BYTES = 128 * 1024

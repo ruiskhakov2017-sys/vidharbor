@@ -38,6 +38,8 @@ def main():
     def baseline():
         return database("import json; from vidharbor.models import Job,Attempt,Outbox; "
             "print(json.dumps({'jobs':list(Job.objects.order_by('id').values_list('id','state')),'attempts':Attempt.objects.count(),'outbox':Outbox.objects.count()},default=str))")
+    deadline=database("import json; from vidharbor.metrics_sampler import DEADLINE; print(json.dumps(DEADLINE))")
+    assert 0<deadline<=5,'The collector must retain a finite maximum five-second budget'
     before=baseline();original_files=os.getenv('COMPOSE_FILE','compose.yaml:compose.observability.yaml')
     args.report.parent.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='s07-collector-fault-') as temp:
@@ -48,7 +50,7 @@ def main():
             stalled=wait_for(lambda: (s if value((s:=sample())['body'],'vidharbor_metrics_collection_failures_total')>=1 else None),
                 'A real pg_sleep collector must hit the outer deadline',seconds=30)
             assert value(stalled['body'],'vidharbor_metrics_collection_up')==0
-            assert value(stalled['body'],'vidharbor_metrics_collection_duration_seconds')<3
+            assert value(stalled['body'],'vidharbor_metrics_collection_duration_seconds')<deadline+1
             assert 'reason="timeout"' in stalled['body']
             def catalog(_):
                 guest=build_opener(ProxyHandler({}));latencies=[]
@@ -79,10 +81,11 @@ print(json.dumps(result))
                 scrape_latencies=[x for values in metrics_future.result() for x in values]
             assert max(catalog_latencies)<2,('Catalogue delayed by collection',max(catalog_latencies))
             assert max(scrape_latencies)<1,('Cached scrape waited on collection',max(scrape_latencies))
-            final=sample();assert value(final['body'],'vidharbor_metrics_collection_failures_total')>=2
+            final=wait_for(lambda: (s if value((s:=sample())['body'],'vidharbor_metrics_collection_failures_total')>=2 else None),
+                'Two actual collector deadlines must occur',seconds=deadline+6)
             assert baseline()==before
             result={'status':'PASS','fault':'real PostgreSQL pg_sleep(30) in isolated collector; inner SQL timeout disabled only for this fault',
-                'collector_deadline_seconds':2,'last_collection_seconds':value(final['body'],'vidharbor_metrics_collection_duration_seconds'),
+                'collector_deadline_seconds':deadline,'last_collection_seconds':value(final['body'],'vidharbor_metrics_collection_duration_seconds'),
                 'catalog_requests':len(catalog_latencies),'catalog_max_seconds':max(catalog_latencies),
                 'parallel_scrapes':len(scrape_latencies),'scrape_max_seconds':max(scrape_latencies),'business_records_unchanged':True}
         finally:
