@@ -17,6 +17,18 @@ from .metrics_sampler import MAX_AGE, SnapshotSampler
 
 
 class IsolatedMetricsTests(SimpleTestCase):
+    def test_stalled_broker_thread_does_not_delay_disposable_process_exit(self):
+        code="""import time
+from vidharbor import metrics
+metrics.broker_observation=lambda:time.sleep(30)
+try: metrics.bounded_broker_observation(timeout=.05)
+except TimeoutError: print('bounded')
+"""
+        started=time.monotonic()
+        result=subprocess.run([sys.executable,'-c',code],capture_output=True,text=True,timeout=3)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('bounded',result.stdout)
+        self.assertLess(time.monotonic()-started,2)
     def test_unreapable_child_stops_sampling_without_starting_more_children(self):
         child=Mock(pid=12345)
         child.communicate.side_effect=subprocess.TimeoutExpired('collector',2)

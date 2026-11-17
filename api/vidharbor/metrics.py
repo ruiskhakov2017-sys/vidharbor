@@ -6,6 +6,7 @@ RabbitMQ depth means ready messages (passive declaration), not unacked messages.
 import hmac
 import logging
 import os
+import queue
 import threading
 import time
 from datetime import timedelta
@@ -65,6 +66,36 @@ def authorized(header):
     return token is not None and hmac.compare_digest(header.encode(), b"Bearer "+token)
 
 
+def broker_observation():
+    params=pika.ConnectionParameters(host=settings.RABBITMQ_HOST,
+        credentials=pika.PlainCredentials(settings.RABBITMQ_USER,settings.RABBITMQ_PASSWORD),
+        heartbeat=10,connection_attempts=1,socket_timeout=1,stack_timeout=2,blocked_connection_timeout=1)
+    with pika.BlockingConnection(params) as broker:
+        channel=broker.channel()
+        depth=GaugeMetricFamily("vidharbor_queue_ready_messages", "Ready messages only; excludes unacked", labels=["queue"])
+        consumers=GaugeMetricFamily("vidharbor_queue_consumers", "Consumers observed by passive queue declaration", labels=["queue"])
+        for name in ("video.jobs","video.dlq"):
+            result=channel.queue_declare(queue=name,passive=True)
+            depth.add_metric([name],result.method.message_count)
+            consumers.add_metric([name],result.method.consumer_count)
+    return depth,consumers
+
+
+def bounded_broker_observation(timeout=.5):
+    # DNS and passive AMQP RPC do not obey socket_timeout in every failure mode.
+    # This daemon exists only inside the disposable collection process; process
+    # exit/outer deadline reaps it, so no persistent thread pool can accumulate.
+    result=queue.Queue(maxsize=1)
+    def probe():
+        try:result.put((True,broker_observation()))
+        except Exception as error:result.put((False,error))
+    threading.Thread(target=probe,daemon=True).start()
+    try:ok,value=result.get(timeout=timeout)
+    except queue.Empty:raise TimeoutError("broker_observation_budget") from None
+    if not ok:raise value
+    return value
+
+
 class DatabaseCollector:
     def describe(self):
         return []  # Registration must never perform database or broker I/O.
@@ -115,19 +146,8 @@ class DatabaseCollector:
         except DatabaseError:
             backend.add_metric(["postgres"],0)
         try:
-            params=pika.ConnectionParameters(host=settings.RABBITMQ_HOST,
-                credentials=pika.PlainCredentials(settings.RABBITMQ_USER,settings.RABBITMQ_PASSWORD),
-                heartbeat=10,connection_attempts=1,socket_timeout=1,stack_timeout=2,blocked_connection_timeout=1)
-            with pika.BlockingConnection(params) as broker:
-                channel=broker.channel()
-                depth=GaugeMetricFamily("vidharbor_queue_ready_messages", "Ready messages only; excludes unacked", labels=["queue"])
-                consumers=GaugeMetricFamily("vidharbor_queue_consumers", "Consumers observed by passive queue declaration", labels=["queue"])
-                for queue in ("video.jobs","video.dlq"):
-                    result=channel.queue_declare(queue=queue,passive=True)
-                    depth.add_metric([queue],result.method.message_count)
-                    consumers.add_metric([queue],result.method.consumer_count)
-                yield depth;yield consumers
-                backend.add_metric(["rabbitmq"],1)
+            yield from bounded_broker_observation()
+            backend.add_metric(["rabbitmq"],1)
         except (pika.exceptions.AMQPError,OSError):
             backend.add_metric(["rabbitmq"],0)
         yield backend

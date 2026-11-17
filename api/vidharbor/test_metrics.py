@@ -1,6 +1,7 @@
 import os
 import tempfile
 import time
+import threading
 from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -9,7 +10,7 @@ import pika
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.utils import timezone
-from prometheus_client import CollectorRegistry, REGISTRY
+from prometheus_client import CollectorRegistry, REGISTRY, generate_latest
 
 from . import metrics, telemetry
 from .models import Attempt, Job, Outbox, Upload, Video
@@ -53,6 +54,19 @@ class MetricsEndpointTests(SimpleTestCase):
 
 
 class DurableMetricsTests(TestCase):
+    def test_stalled_broker_preserves_postgres_metrics_and_reports_backend_down(self):
+        release=threading.Event()
+        def blocked():release.wait(5)
+        registry=CollectorRegistry(auto_describe=False);registry.register(metrics.DatabaseCollector())
+        try:
+            with patch.object(metrics,'broker_observation',side_effect=blocked):
+                started=time.monotonic();body=generate_latest(registry)
+            self.assertLess(time.monotonic()-started,1.5)
+            self.assertIn(b'vidharbor_backend_up{backend="postgres"} 1.0',body)
+            self.assertIn(b'vidharbor_backend_up{backend="rabbitmq"} 0.0',body)
+            self.assertIn(b'vidharbor_command_outbox_pending 0.0',body)
+        finally:release.set()
+
     def test_retry_history_changes_the_retry_gauge(self):
         registry=CollectorRegistry(auto_describe=False);registry.register(metrics.DatabaseCollector())
         with patch('vidharbor.metrics.pika.BlockingConnection',side_effect=pika.exceptions.AMQPConnectionError):
