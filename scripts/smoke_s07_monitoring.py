@@ -36,12 +36,15 @@ def verify_monitoring(opener,guest,base,csrf,make_upload,created,output):
     auth={'Authorization':'Basic '+base64.b64encode(('admin:'+password).encode()).decode()}
     result={}
     def query(expr,missing=False):
-        raw,_=http(guest,prometheus+'/api/v1/query?'+urlencode({'query':expr}))
-        data=json.loads(raw);assert data['status']=='success'
-        values=data['data']['result']
-        if not values and missing:return 0
-        assert values,('Missing metric',expr)
-        return float(values[0]['value'][1])
+        def observed():
+            raw,_=http(guest,prometheus+'/api/v1/query?'+urlencode({'query':expr}))
+            data=json.loads(raw);assert data['status']=='success'
+            values=data['data']['result']
+            if not values:return (0,) if missing else None
+            return (float(values[0]['value'][1]),)
+        # Collection and scrape are asynchronous; a failed snapshot is correctly
+        # omitted. Require a real sample within a bound, including valid zero.
+        return wait_for(observed,('Required metric did not arrive',expr),seconds=20)[0]
     wait_for(lambda:query('sum(up{job=~"vidharbor-.*"})')==6,'All six real application targets must be scraped')
     wait_for(lambda:query('vidharbor_metrics_collection_up')==1,'Isolated durable collector must have a fresh snapshot')
     assert json.loads(http(guest,grafana+'/api/health',headers=auth)[0])['database']=='ok'
