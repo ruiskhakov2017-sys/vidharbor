@@ -1,0 +1,46 @@
+{
+  "status": "PASS",
+  "default_compose": "telemetry disabled; no added secret required",
+  "optional_ports": {
+    "grafana": [
+      {
+        "mode": "ingress",
+        "host_ip": "127.0.0.1",
+        "target": 3000,
+        "published": "13007",
+        "protocol": "tcp"
+      }
+    ],
+    "prometheus": [
+      {
+        "mode": "ingress",
+        "host_ip": "127.0.0.1",
+        "target": 9090,
+        "published": "13907",
+        "protocol": "tcp"
+      }
+    ],
+    "tempo": [
+      {
+        "mode": "ingress",
+        "host_ip": "127.0.0.1",
+        "target": 3200,
+        "published": "13207",
+        "protocol": "tcp"
+      }
+    ],
+    "web": [
+      {
+        "mode": "ingress",
+        "host_ip": "127.0.0.1",
+        "target": 80,
+        "published": "8120",
+        "protocol": "tcp"
+      }
+    ]
+  },
+  "grafana_memory_limit_bytes": 536870912,
+  "old_workflows": "byte-identical to main73db264",
+  "runtime_app_modules": "all current source hashes match api/upload",
+  "new_github_run": "Not Run"
+}

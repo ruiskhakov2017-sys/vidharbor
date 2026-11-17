@@ -6,6 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from vidharbor.job_consumer import run_consumer
 from vidharbor.publication import process_delivery
+from vidharbor import metrics
 
 
 class Command(BaseCommand):
@@ -19,4 +20,5 @@ class Command(BaseCommand):
             raise CommandError("PUBLIC_BASE_URL must be an HTTP(S) origin")
         logging.basicConfig(level=logging.INFO)
         logging.getLogger("vidharbor").setLevel(logging.INFO)
+        metrics.start_component_server()
         run_consumer(delivery_handler=process_delivery)

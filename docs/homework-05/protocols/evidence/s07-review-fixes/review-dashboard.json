@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "browser": "156.0.8078.79",
+  "datasource_queries": 16,
+  "query_errors": [],
+  "external_requests": [],
+  "dashboard": "vidharbor-overview",
+  "visible_canvas": {
+    "x": 325,
+    "y": 200,
+    "width": 532,
+    "height": 154
+  }
+}

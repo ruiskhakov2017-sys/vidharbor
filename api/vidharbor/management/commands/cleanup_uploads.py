@@ -8,6 +8,7 @@ from django.utils import timezone
 from vidharbor.models import Job, Upload
 from vidharbor.storage import media_lock, original_path, part_path
 from vidharbor.deletion import clean_pending
+from vidharbor import metrics
 
 
 STALE_STATES = [Upload.State.UPLOADING, Upload.State.VERIFYING, Upload.State.INTERRUPTED]
@@ -44,9 +45,11 @@ class Command(BaseCommand):
         if settings.RESTORE_MODE:
             raise CommandError("Restore mode: cleanup is paused")
         expires_at = 0
+        metrics.start_component_server()
         while True:
             close_old_connections()
             clean_pending()
+            metrics.tick(True)
             if time.monotonic() >= expires_at:
                 self.stdout.write(f"Expired uploads: {expire_uploads()}")
                 expires_at = time.monotonic() + 300

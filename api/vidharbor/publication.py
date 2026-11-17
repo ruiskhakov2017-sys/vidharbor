@@ -15,6 +15,7 @@ from .job_attempts import execute_attempt, finish_attempt
 from .models import Attempt, Job, Outbox, Video
 from .storage import file_digest, original_path, sync_directory
 from .transcode import encode, filesystem_failure
+from . import telemetry
 
 
 logger = logging.getLogger(__name__)
@@ -141,6 +142,7 @@ def verify_manifest(directory, job, attempt_id):
         raise InvalidHLS("Manifest mismatch")
 
 
+@telemetry.traced("video.publish")
 def publish_video(job, *, recovered=False):
     # Called by finish_attempt within the transaction that also completes the job.
     video = Video.objects.select_for_update().get(pk=job.video_id)
@@ -173,6 +175,8 @@ def publish_video(job, *, recovered=False):
             "playlist_url": settings.PUBLIC_BASE_URL + master_url(video.id),
         },
     )
+    telemetry.identify(event_id=event_id)
+    telemetry.log_event("video.ready", event_id=event_id)
     return True
 
 

@@ -1,6 +1,6 @@
 # VidHarbor — матрица требований и доказательств
 
-**Статус** · Сверка локальных фактов S01–S08, 2026-11-15. Ветка feature/s05-s08-completion не опубликована. S07, реальная интеграция и production условия остаются открытыми. «На каркасе подтверждено» относится к проверкам минимального VidHarbor. «Частично» фиксирует проверенную часть более широкого требования. Значение «Не выполнено» относится к фактическому доказательству.
+**Статус** · Сверка фактов на 2026-11-17 после Review S07. Принятый S05/S06/учебный S08 и rollback deletion fix опубликованы в main 73db264. В отдельной ветке S07 локально проверены P06–P10; GitHub CI/Review новой ветки, настоящий n8n/Sheets, публичный deployment/caps и независимый backup carrier остаются открытыми. «На каркасе подтверждено» — историческая проверка минимального VidHarbor; «Частично» сохраняет непроверенную часть более широкого требования. Технический PASS не означает проверенное понимание пользователя.
 
 [PRD](../product-spec.md) · [Архитектура](design.md) · [Решения](decision-log.md) · [Надёжность](reliability.md) · [План этапов](../implementation-plan.md) · [Задачи](../../tasks.md).
 
@@ -28,8 +28,8 @@
 | NFR-002 | Раздельные HTTP и worker | design §§6–8, reliability | S02 / T202, S03 / T301 | AC-002, AC-008 | Раздельные upload/API/worker: при большом прогоне каталог 52/52 HTTP 200, max 0.114 с, RSS API 102 MiB/upload 137 MiB/worker 398 MiB (сумма RSS процессов). [Сводный протокол](protocols/s05-s08-completion.md) |
 | NFR-003 | Ограниченные попытки и DLQ | design §§6–8, reliability | S03 / T302, S03 / T303, S03 / T304 | AC-008 | Подтверждены три попытки, задержки и два пути доставки в DLQ на стенде. [S03](testing-report.md#s03) |
 | NFR-004 | Отдельная доставка уведомлений | design §§6–8, reliability | S06 / T602, S06 / T603 | AC-007 | Локально: отдельный notifier, пять запланированных попыток/lease fencing/отмена при delete, готовое видео независимо от HTTP. Внешняя приёмка открыта. [Сводный протокол](protocols/s05-s08-completion.md) |
-| NFR-005 | Compose, конфиг и checks | design §§6–8, reliability | S01 / T102, S01 / T104, S07 / T702 | AC-009 | Частично. На каркасе проверены запуск, настройки, секреты вне Git, `live` и `ready`. [S01](testing-report.md#s01) |
-| NFR-006 | Наблюдение | design §§6–8, reliability | S07 / T701, S07 / T702 | AC-009 | Не выполнено |
+| NFR-005 | Compose, конфиг и checks | design §§6–8, reliability | S01 / T102, S01 / T104, S07 / T702 | AC-009 | Частично: стандартный Compose/health сохранён, облачный S01 повторён с PG/Rabbit outage. Приватные component checks добавлены. GitHub новой ветки/публичные параметры Not Run. [S07](protocols/s07-observability.md) |
+| NFR-006 | Наблюдение | design §§6–8, reliability | S07 / T701, S07 / T702 | AC-009 | Локально исправлены transfer-to-READY trace и изоляция медленного collector;8 spans/91 Django tests/real SQL fault. GitHub artifacts/Review/публичная приёмка открыты. [Исправления](protocols/s07-review-fixes.md) |
 | NFR-007 | Копия и восстановление | design §§6–8, reliability | S08 / T801, S08 / T802, S08 / T803 | AC-009 | Частично: настоящий dump/media/cold broker и restore в чистую БД/тома, свежий журнал удалений. Независимый носитель/retention/RPO/RTO targets не согласованы. [Сводный протокол](protocols/s05-s08-completion.md) |
 | AC-001 | Два аккаунта и запрет чужих действий | план §§6–7, PRD §8 | S02 / T201, S05 / T501.1 | F01 | Локальные Django/браузерные доказательства двух авторов, CSRF и запрета чужих rename/retry/delete. [Сводный протокол](protocols/s05-s08-completion.md) |
 | AC-002 | Большой файл и целостность | план §§6–7, PRD §8 | S02 / T202, S02 / T203, S08 / T804 | F01, F02, F03 | Большой валидный синтетический MKV 3,529,596,888 байт прошёл UI/queue/FFmpeg/player; SHA совпал, замеры сохранены. Проверка под реально действующими production limits ещё нужна. [Сводный протокол](protocols/s05-s08-completion.md) |
@@ -39,7 +39,7 @@
 | AC-006 | Обрыв, ошибки, повтор из оригинала | план §§6–7, PRD §8 | S02 / T203, S03 / T302, S05 / T501.2 | F06, F08, F12 | Локально: abort/lost reply, два реальных FFmpeg timeout, успешный retry без новой передачи, прежний original/URL и единственный successor; probe_timeout не расходует generation. [Сводный протокол](protocols/s05-s08-completion.md) |
 | AC-007 | Реальная строка и отказ интеграции | план §§6–7, PRD §8 | S06 / T602, S06 / T603 | F05, F10 | НЕ ЗАВЕРШЁН: тестовый получатель PASS, настоящий VidHarbor → n8n → Google Sheets Not Run; нужны учебные workflow/вкладка, доступ и внешняя HLS-ссылка. [Сводный протокол](protocols/s05-s08-completion.md) |
 | AC-008 | Реальная DLQ, сбои, дубли | план §§6–7, PRD §8 | S03 / T301, S03 / T302, S03 / T303, S03 / T304 | F03, F06, F07, F08, F09, F11, F12 | Полная отказная S04 регрессия PASS: orphan/flock, падения, БД/канал, ack timeout/redelivery, тот же event, partial 404/DLQ. [Сводный протокол](protocols/s05-s08-completion.md) |
-| AC-009 | Compose, telemetry и чистый restore | план §§6–7, PRD §8 | S01 / T104, S07 / T701, S07 / T702, S08 / T802, S08 / T803 | F13, F14, F16, F17, F18 | Частично: Compose/health и clean restore проверены. S07 P06–P10, независимый носитель и production приёмка не выполнены. [Сводный протокол](protocols/s05-s08-completion.md) |
+| AC-009 | Compose, telemetry и чистый restore | план §§6–7, PRD §8 | S01 / T104, S07 / T701, S07 / T702, S08 / T802, S08 / T803 | F13, F14, F16, F17, F18 | Частично: Compose/health/telemetry и clean restore имеют учебные доказательства. Новый GitHub CI, независимый carrier и публичная приёмка Not Run. [S07](protocols/s07-observability.md) · [S08](protocols/s05-s08-completion.md) |
 
 ## Поручения ментора
 
@@ -69,15 +69,15 @@
 | M20 | Environment | design §§2–8, DEC-003 | S01 / T104, X001 | P02 | Частично. Для каркаса VidHarbor проверен `.env.example`. [S01](testing-report.md#s01) |
 | M21 | Секреты вне Git | design §§2–8, DEC-003 | S01 / T104, X001 | P03 | Частично. В каркасе VidHarbor локальные секреты исключены из Git. [S01](testing-report.md#s01) |
 | M22 | Health/readiness | design §§2–8, DEC-003 | S01 / T104, S07 / T702, X001 | P04, P05 | Частично. В каркасе VidHarbor проверены отдельные `live` и `ready` при отказе зависимостей. [S01](testing-report.md#s01) |
-| M23 | Структурированные логи | design §§2–8, DEC-003 | S07 / T701, X001 | P06 | Не выполнено |
-| M24 | Request/job ID | design §§2–8, DEC-003 | S07 / T701, X001 | P07 | Не выполнено |
-| M25 | Сквозной trace | design §§2–8, DEC-003 | S07 / T701, X001 | P08 | Не выполнено |
-| M26 | Базовые метрики | design §§2–8, DEC-003 | S07 / T702, X001 | P09 | Не выполнено |
-| M27 | Панель | design §§2–8, DEC-003 | S07 / T702, X001 | P10 | Не выполнено |
+| M23 | Структурированные логи | design §§2–8, DEC-003 | S07 / T701, X001 | P06 | VidHarbor: PASS JSON/allowlist/privacy на реальном стенде. KazanCourts отдельно. [S07](protocols/s07-observability.md) |
+| M24 | Request/job ID | design §§2–8, DEC-003 | S07 / T701, X001 | P07 | VidHarbor: PASS correlation Upload→Job/Outbox/Rabbit/worker/READY, сохранение carrier при retry. [S07](protocols/s07-observability.md) |
+| M25 | Сквозной trace | design §§2–8, DEC-003 | S07 / T701, X001 | P08 | VidHarbor: PASS настоящий распределённый trace, parent IDs, длительности, resource services и поиск логов. [S07](protocols/s07-observability.md) |
+| M26 | Базовые метрики | design §§2–8, DEC-003 | S07 / T702, X001 | P09 | VidHarbor: PASS реальные success/error/DLQ/retry/webhook/outage/recovery метрики; production caps/SLO не утверждены. [S07](protocols/s07-observability.md) |
+| M27 | Панель | design §§2–8, DEC-003 | S07 / T702, X001 | P10 | VidHarbor: PASS Grafana live datasource и Chrome; официальный image GitHub-run ещё Not Run. [S07](protocols/s07-observability.md) |
 | M28 | Ограничение изменений KazanCourts | Отдельный учебный объём, план §1 | X001 | F15 | Не выполнено |
 | M29 | Объяснение решений | Отдельный учебный объём, план §1 | X003 | Defense | Не выполнено |
-| M30 | Сверка с ТЗ | design §§2–8, DEC-003 | D001, S08 / T804 | RTM | Проведена фактическая сверка; остаток явно сохранён: AC-007/009, S07 и внешняя/учебная приёмка. [Сводный протокол](protocols/s05-s08-completion.md) |
-| M31 | Повтор непонятных тем | Отдельный учебный объём, план §1 | X002 | theory-notes | Не выполнено |
+| M30 | Сверка с ТЗ | design §§2–8, DEC-003 | D001, S08 / T804 | RTM | Сверка обновлена по фактам: AC-007/009, внешний n8n/Sheets, CI/Review S07, carrier/caps/public и учебная приёмка открыты. [S07](protocols/s07-observability.md) |
+| M31 | Повтор непонятных тем | Отдельный учебный объём, план §1 | X002 | theory-notes | Материал по30темам подготовлен; усвоение/защита не проверены. [Theory notes](theory-notes.md) |
 | M32 | Связь с ментором по готовности | Отдельный учебный объём, план §1 | X003 | mentor-review | Не выполнено |
 | M33 | PostgreSQL backup и проверенный restore | design §§2–8, DEC-003 | S08 / T801, S08 / T802, X001 | P11, P12 | VidHarbor: реальный backup/clean restore PASS учебного стенда; carrier/retention/RPO/RTO и KazanCourts открыты. [Сводный протокол](protocols/s05-s08-completion.md) |
 | M34 | Запуск, обновление и восстановление | design §§2–8, DEC-003 | S08 / T803, X001 | P13 | VidHarbor: локальные start/update/restore проверены и документированы; production/KazanCourts не завершены. [Сводный протокол](protocols/s05-s08-completion.md) |
@@ -110,11 +110,11 @@
 | P03 | Секреты вне Git | design §§7–8 | S01 / T104 | F13 | На каркасе подтверждено. Локальные файлы секретов исключены из Git, значения отсутствуют в файлах коммита. [T104](protocols/s01-runtime.md#t104) |
 | P04 | Liveness | design §§7–8 | S01 / T104 | F13 | На каркасе подтверждено. `live` вернул `200` при остановке базы или очереди. [T104](protocols/s01-runtime.md#t104) |
 | P05 | Readiness | design §§7–8 | S01 / T104, S07 / T702 | F13 | На каркасе подтверждено. `ready` вернул `503` при остановке каждой зависимости и `200` после восстановления. [T104](protocols/s01-runtime.md#t104) |
-| P06 | JSON-логи | design §§7–8 | S07 / T701 | F14 | Не выполнено |
-| P07 | Request/job correlation ID | design §§7–8 | S07 / T701 | F14 | Не выполнено |
-| P08 | Сквозной trace | design §§7–8 | S07 / T701 | F14 | Не выполнено |
-| P09 | Базовые метрики | design §§7–8 | S07 / T702 | F14 | Не выполнено |
-| P10 | Живая панель | design §§7–8 | S07 / T702 | F14 | Не выполнено |
+| P06 | JSON-логи | design §§7–8 | S07 / T701 | F14 | PASS учебного VidHarbor: 1997 JSON records проверены, технический allowlist без title/user/password/cookie/CSRF. [S07](protocols/s07-observability.md) |
+| P07 | Request/job correlation ID | design §§7–8 | S07 / T701 | F14 | PASS учебного VidHarbor: correlation=Upload UUID, durable carrier/повторы; 7 linked events по trace ID. [S07](protocols/s07-observability.md) |
+| P08 | Сквозной trace | design §§7–8 | S07 / T701 | F14 | PASS локально после Review: PUT/upload.receive→complete→Job/Outbox/Rabbit→FFmpeg→READY,8 spans; настоящий Vue передал parent. [Исправления](protocols/s07-review-fixes.md) |
+| P09 | Базовые метрики | design §§7–8 | S07 / T702 | F14 | PASS локально после Review:6 private targets, durable gauges собираются отдельно от API с5 с полным subprocess deadline/SQL250 мс. Настоящий pg_sleep(30),32catalogue/64scrape и recovery проверены. [Исправления](protocols/s07-review-fixes.md) |
+| P10 | Живая панель | design §§7–8 | S07 / T702 | F14 | PASS учебного VidHarbor: provisioned Grafana→Prometheus query, Chrome 16 datasource queries, fault/recovery и local alert firing. [S07](protocols/s07-observability.md) |
 | P11 | PostgreSQL backup | design §§7–8 | S08 / T801 | F16 | Реальный pg_dump/media/cold broker, полный manifest/checksums, пауза 79.193 с. Same-host учебный drill; постоянный носитель не согласован. [Сводный протокол](protocols/s05-s08-completion.md) |
 | P12 | Restore в чистой БД | design §§7–8 | S08 / T802 | F17 | Чистая PostgreSQL и отдельные тома: 98 файлов/записи совпали, fresh deletion authority применён; restore 106.147 с. [Сводный протокол](protocols/s05-s08-completion.md) |
 | P13 | Запуск, обновление, восстановление системы | design §§7–8 | S08 / T803 | F18 | Локальные start/update 0003→0006/restore выполнены, инструкции созданы. Production cutover/runbook review и внешний доступ остаются открытыми. [Operations](operations.md) · [Сводный протокол](protocols/s05-s08-completion.md) |
@@ -137,8 +137,8 @@
 | F10 | Webhook недоступен | план §§6–7 | S06 / T603 | AC-007 | Частично: реальный тестовый HTTP commit → потеря ответа → повтор/конфликт; внешняя интеграция Not Run. [Сводный протокол](protocols/s05-s08-completion.md) |
 | F11 | Брокер недоступен | план §§6–7 | S03 / T301, S03 / T304 | AC-008 | При недоступном RabbitMQ команда сохранилась в outbox. После запуска доставлена с исходным ID. [S03](testing-report.md#s03) |
 | F12 | Частичный результат закрыт | план §§6–7 | S04 / T402 | AC-006, AC-008 | Неполный и неактивный результат закрыт. Полный результат принят после сбоя. [S04](testing-report.md#s04) |
-| F13 | Compose, настройки и checks | план §§6–7 | S01 / T102, S01 / T104, S07 / T702, X001 | P01–P05 | Compose/настройки/health повторены на полном учебном VidHarbor; проверки S07 и KazanCourts отдельно. [Сводный протокол](protocols/s05-s08-completion.md) |
-| F14 | Telemetry | план §§6–7 | S07 / T701, S07 / T702, X001 | P06–P10 | Не выполнено |
+| F13 | Compose, настройки и checks | план §§6–7 | S01 / T102, S01 / T104, S07 / T702, X001 | P01–P05 | Облачный S01 повторён на полном учебном стеке: browser/live/ready и обе зависимости; компонентные live/ready S07 проверены. Public/KazanCourts отдельно. [S07](protocols/s07-observability.md) |
+| F14 | Telemetry | план §§6–7 | S07 / T701, S07 / T702, X001 | P06–P10 | PASS локальной telemetry VidHarbor P06–P10 с реальным trace/панелью/rotation/faults. GitHub нового SHA и публичный demo Not Run; KazanCourts отдельно. [S07](protocols/s07-observability.md) |
 | F15 | Регрессия только KazanCourts | Отдельный учебный объём, план §1 | X001 | вне-scope | Не выполнено |
 | F16 | Реальный dump | план §§6–7 | S08 / T801, X001 | P11 | PASS учебного dump + media/cold broker/manifest, независимый carrier pending. [Сводный протокол](protocols/s05-s08-completion.md) |
 | F17 | Реальный restore | план §§6–7 | S08 / T802, X001 | P12 | PASS clean restore, оригиналы и свежие удаления проверены; внешняя Sheets не сверена. [Сводный протокол](protocols/s05-s08-completion.md) |
@@ -153,7 +153,7 @@
 | U01 | Письменный список Production Practice получен | DEC-003/004, design §11 | D001 | P01–P13 | Источник получен, практика не выполнена |
 | U02 | Качества, вертикаль и малый источник | DEC-003/004, design §11 | S04 / T401 | OPEN-02 | Рамка 720×1280 утверждена в DEC-005 и проверена на повёрнутом MOV. [S04](testing-report.md#s04) |
 | U03 | Плейлист и плеер | DEC-003/004, design §11 | S04 / T403, S04 / T404 | OPEN-02 | Master и hls.js проверены в Chrome, Edge и Firefox. [S04](testing-report.md#s04) |
-| U04 | Контракт webhook | DEC-003/004, design §11 | S06 / T601, S06 / T603 | OPEN-01 | Не выполнено |
+| U04 | Контракт webhook | DEC-003/004, design §11 | S06 / T601, S06 / T603 | OPEN-01 | Контракт существующего sender и синтетические сценарии точно записаны; реальная сериализация/доступ n8n/Sheets не согласованы и не проверены. [Подготовка](integration-rehearsal.md) |
 | U05 | Пределы и загрузка | DEC-003/004, design §11 | S01 / T101, S02 / T202, S08 / T804 | OPEN-03 | Большой синтетический прогон выполнен, hash/ресурсы сохранены; точные условия и ограничения в протоколе. [Сводный протокол](protocols/s05-s08-completion.md) |
 | U06 | Кандидат FFmpeg | DEC-003/004, design §11 | S04 / T401 | F04 | Закреплённая сборка FFmpeg/ffprobe 8.1.3 проверена на четырёх контейнерах. [S04](testing-report.md#s04) |
 | U07 | Неясные слова о прежних интеграциях | Отдельный учебный объём, план §1 | X002 | theory-notes | Не выполнено |
@@ -171,7 +171,7 @@
 
 ## Теория и общий учебный цикл
 
-Источник — ДЗ 005 §6 и Markdown roadmap. Все строки относятся к X002 и будущему `theory-notes.md`. Проверка — объяснение своими словами и применимый учебный пример. Технические артефакты VidHarbor дают материал для защиты, а статусы понимания фиксируются отдельно.
+Источник — ДЗ 005 §6 и Markdown roadmap. Все строки относятся к X002 и [подготовленному материалу по30темам](theory-notes.md); понимание/Defense не проверены. Проверка — объяснение своими словами и применимый учебный пример. Технические артефакты VidHarbor дают материал для защиты, а статусы понимания фиксируются отдельно.
 
 | ID | Тема | Задача и доказательство | Факт |
 |---|---|---|---|

@@ -1,0 +1,34 @@
+# Host-installed Nginx edge TEMPLATE. Substitute __PUBLIC_HOSTNAME__ and cert paths.
+# VidHarbor web remains bound to 127.0.0.1:8085; database/broker/telemetry are private.
+server {
+    listen 80;
+    server_name __PUBLIC_HOSTNAME__;
+    return 308 https://__PUBLIC_HOSTNAME__$request_uri;
+}
+server {
+    listen 443 ssl;
+    server_name __PUBLIC_HOSTNAME__;
+    ssl_certificate __TLS_FULLCHAIN_PATH__;
+    ssl_certificate_key __TLS_PRIVATE_KEY_PATH__;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    # No URI/query, headers or body in edge logs. IP access logging disabled.
+    access_log off;
+    error_log /var/log/nginx/vidharbor-error.log warn;
+    client_max_body_size 5120m;
+    client_body_timeout 30s;
+    location ^~ /internal/ { return 404; }
+    location = /metrics { return 404; }
+    location / {
+        proxy_pass http://127.0.0.1:8085;
+        proxy_http_version 1.1;
+        proxy_set_header Host __PUBLIC_HOSTNAME__;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_next_upstream off;
+        proxy_connect_timeout 3s;
+        proxy_send_timeout 30s;
+        proxy_read_timeout 130s;
+    }
+}

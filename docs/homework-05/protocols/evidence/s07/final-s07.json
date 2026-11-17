@@ -1,0 +1,93 @@
+{
+  "status": "PASS",
+  "project": "vidharbor-s07-local",
+  "base": "http://127.0.0.1:8120",
+  "github_ci": "Not Run (no push/PR authorized)",
+  "created": {
+    "video_id": "eb66e8b8-de8b-49e6-ba39-f5c047ee34e3",
+    "job_id": "cc8ae519-b2b9-4eab-a061-761805edc316",
+    "message_id": "a4eaf450-81cb-4ef3-bf7a-90d1c08fbc25"
+  },
+  "correlation_id": "151cbedc-ef12-4405-bebc-cc33ef401938",
+  "trace_id": "82f77f97135deec8813a64d7c8bab838",
+  "monitoring": {
+    "private_metrics": "PASS: web 404, direct API without token 401; five authenticated targets up",
+    "http_metrics": "PASS: real requests, failure and histogram observed",
+    "failed_job_and_dlq": {
+      "status": "PASS",
+      "job_id": "94c93d8a-11fb-4a31-b3eb-91865bf02e86",
+      "fixture": "intentional corruption of a dedicated fixture; original restored"
+    },
+    "webhook_metrics": {
+      "status": "PASS",
+      "scope": "existing loopback test receiver only",
+      "row": 7,
+      "event_id": "da1134e4-79fb-49aa-addc-2a916c5a4497",
+      "records": 1
+    },
+    "grafana": "PASS: provisioned dashboard expression executed through its real Prometheus datasource",
+    "tempo_outage": {
+      "status": "PASS",
+      "new_job_still_ready": "8bb64176-eb68-4529-8c73-e22233ffda87",
+      "original_unchanged": true,
+      "export_recovered": true
+    },
+    "prometheus_outage": "PASS: business data unchanged; datasource failure then live recovery",
+    "broker_outage": {
+      "status": "PASS",
+      "alert_fired": true,
+      "component_live_200_ready_503": true,
+      "original_unchanged": true,
+      "queued_job": "498461a6-d941-474a-a535-2adcfbcc75fc",
+      "trace_id": "ca5b1682fdf2b07efb9e4684becc571e",
+      "durable_outbox_observed": true,
+      "trace_context_recovered": true
+    },
+    "real_n8n_sheets": "Not Run"
+  },
+  "trace_spans": [
+    {
+      "name": "HTTP POST /api/uploads/<uuid:upload_id>/complete",
+      "service": "upload",
+      "duration_ms": 75.635935
+    },
+    {
+      "name": "job.create",
+      "service": "upload",
+      "duration_ms": 7.499938
+    },
+    {
+      "name": "outbox.publish",
+      "service": "relay",
+      "duration_ms": 4.3498
+    },
+    {
+      "name": "worker.process",
+      "service": "worker",
+      "duration_ms": 2250.09018
+    },
+    {
+      "name": "ffmpeg.encode",
+      "service": "worker",
+      "duration_ms": 2187.378154
+    },
+    {
+      "name": "video.publish",
+      "service": "worker",
+      "duration_ms": 4.824736
+    }
+  ],
+  "persisted": {
+    "state": "SUCCEEDED",
+    "carrier": {
+      "traceparent": "00-82f77f97135deec8813a64d7c8bab838-8402ef8b41d27f70-03"
+    },
+    "sent": true,
+    "attempts": 1,
+    "ready_events": 1,
+    "sha256": "340d555f4b4466940c180691788b4f9a980db375fef2434b8f3d1ad2a468f003"
+  },
+  "linked_log_records": 7,
+  "json_log_records": 1997,
+  "privacy": "PASS: no title/user/password/cookie/CSRF values"
+}

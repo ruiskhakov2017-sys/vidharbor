@@ -5,6 +5,7 @@ import signal
 import subprocess
 import tempfile
 import time
+from . import telemetry
 from fractions import Fraction
 
 from .media_probe import InvalidVideo, ProbeTimeout, probe_video
@@ -125,6 +126,7 @@ def stop_group(process):
     process.wait()
 
 
+@telemetry.traced("ffmpeg.encode")
 def encode(source, directory, lock_fd, cancelled, *, timeout):
     if cancelled.is_set():
         return "retry", "channel_lost"

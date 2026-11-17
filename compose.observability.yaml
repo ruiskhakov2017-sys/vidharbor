@@ -1,0 +1,165 @@
+# Explicit opt-in: -f compose.yaml -f compose.observability.yaml --profile observability
+x-telemetry: &telemetry
+  VIDHARBOR_OBSERVABILITY: "1"
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
+
+x-diagnostic-logging: &diagnostic-logging
+  driver: json-file
+  options: {max-size: 1m, max-file: "3"}
+
+x-component-health: &component-health
+  test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9100/health/live',timeout=2).close()"]
+  interval: 5s
+  timeout: 3s
+  start_period: 15s
+  retries: 4
+
+services:
+  api:
+    environment:
+      <<: *telemetry
+      VIDHARBOR_SERVICE_NAME: api
+    secrets: [telemetry_metrics_token]
+  upload:
+    environment:
+      <<: *telemetry
+      VIDHARBOR_SERVICE_NAME: upload
+    secrets: [telemetry_metrics_token]
+  relay:
+    environment: *telemetry
+    secrets: [telemetry_metrics_token]
+    healthcheck: *component-health
+  worker:
+    environment: *telemetry
+    secrets: [telemetry_metrics_token]
+    healthcheck: *component-health
+  notifier:
+    environment: *telemetry
+    secrets: [telemetry_metrics_token]
+    healthcheck: *component-health
+  cleanup:
+    environment: *telemetry
+    secrets: [telemetry_metrics_token]
+    healthcheck: *component-health
+  metrics:
+    profiles: [observability]
+    build:
+      context: ./api
+      target: app
+    command: [python, manage.py, serve_metrics]
+    environment:
+      DB_NAME: ${VIDHARBOR_DB_NAME:-vidharbor}
+      DB_USER: ${VIDHARBOR_DB_USER:-vidharbor}
+      RABBITMQ_USER: ${VIDHARBOR_RABBITMQ_USER:-vidharbor}
+      VIDHARBOR_SERVICE_NAME: metrics
+    secrets: [django_secret_key, postgres_password, rabbitmq_password, telemetry_metrics_token]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    init: true
+    mem_limit: 256m
+    cpus: 1
+    logging: *diagnostic-logging
+    healthcheck: *component-health
+  observability-init:
+    profiles: [observability]
+    image: busybox:1.37@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    command: [sh, -ec, "chown 10001:10001 /tempo; chown 65534:65534 /prometheus; chown 472:472 /grafana"]
+    volumes:
+      - tempo_data:/tempo
+      - prometheus_data:/prometheus
+      - grafana_data:/grafana
+  tempo:
+    profiles: [observability]
+    image: grafana/tempo:2.10.10@sha256:12b0820f13ffa10ce956b6e9acc3b03f3cffded99109be6cc09d106fe56e5d38
+    user: "10001:10001"
+    command: [-config.file=/etc/tempo.yaml]
+    depends_on:
+      observability-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./config/observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "127.0.0.1:${VIDHARBOR_TEMPO_PORT:-13207}:3200"
+    mem_limit: 384m
+    cpus: 0.5
+    logging: *diagnostic-logging
+  prometheus:
+    profiles: [observability]
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
+    user: "65534:65534"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=6h
+      - --storage.tsdb.retention.size=128MB
+      - --log.format=json
+    depends_on:
+      observability-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./config/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    secrets: [telemetry_metrics_token]
+    ports:
+      - "127.0.0.1:${VIDHARBOR_PROMETHEUS_PORT:-13907}:9090"
+    mem_limit: 256m
+    cpus: 0.5
+    logging: *diagnostic-logging
+  grafana:
+    profiles: [observability]
+    image: grafana/grafana:12.4.15@sha256:2894082f6cf7081aefdc1389265c04000812309208c190d75e8c65f7a30e4b7e
+    user: "472:472"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_PLUGINS_PUBLIC_KEY_RETRIEVAL_DISABLED: "true"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
+      GF_DATABASE_WAL: "true"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_LOG_CONSOLE_FORMAT: json
+      NO_PROXY: localhost,127.0.0.1,prometheus,tempo
+      no_proxy: localhost,127.0.0.1,prometheus,tempo
+    depends_on:
+      observability-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./config/observability/grafana-provisioning:/etc/grafana/provisioning:ro
+      - ./config/observability/dashboards:/var/lib/vidharbor-dashboards:ro
+      - grafana_data:/var/lib/grafana
+    secrets: [grafana_admin_password]
+    ports:
+      - "127.0.0.1:${VIDHARBOR_GRAFANA_PORT:-13007}:3000"
+    mem_limit: 512m
+    cpus: 0.5
+    logging: *diagnostic-logging
+    healthcheck:
+      test: [CMD, wget, -Y, "off", -q, -T, "3", -O, /dev/null, "http://127.0.0.1:3000/api/health"]
+      interval: 5s
+      timeout: 4s
+      start_period: 30s
+      retries: 10
+
+volumes:
+  tempo_data:
+  prometheus_data:
+  grafana_data:
+
+secrets:
+  telemetry_metrics_token:
+    file: ${VIDHARBOR_SECRETS_DIR:-./secrets}/telemetry_metrics_token
+  grafana_admin_password:
+    file: ${VIDHARBOR_SECRETS_DIR:-./secrets}/grafana_admin_password

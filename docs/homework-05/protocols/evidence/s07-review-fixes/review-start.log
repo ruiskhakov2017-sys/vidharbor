@@ -1,0 +1,14 @@
+ Container vidharbor-s07-local-migrate-1  Creating
+ Container vidharbor-s07-local-metrics-1  Creating
+ Container vidharbor-s07-local-observability-init-1  Creating
+ Container vidharbor-s07-local-observability-init-1  Created
+ Container vidharbor-s07-local-grafana-1  Recreate
+ Container vidharbor-s07-local-migrate-1  Created
+ Container vidharbor-s07-local-upload-1  Recreate
+ Container vidharbor-s07-local-worker-1  Recreate
+ Container vidharbor-s07-local-cleanup-1  Recreate
+ Container vidharbor-s07-local-relay-1  Recreate
+ Container vidharbor-s07-local-api-1  Recreate
+ Container vidharbor-s07-local-metrics-1  Created
+ Container vidharbor-s07-local-api-1  Error response from daemon: mkdir /home/dockerd/.local/share/docker/vfs/dir/970da6f102d952db4f67e6e83293a2bc95908baa447da0111b21ad58bc11928b-init/usr/local/lib/python3.13/site-packages/django/conf/locale/ga: no space left on device
+Error response from daemon: mkdir /home/dockerd/.local/share/docker/vfs/dir/970da6f102d952db4f67e6e83293a2bc95908baa447da0111b21ad58bc11928b-init/usr/local/lib/python3.13/site-packages/django/conf/locale/ga: no space left on device

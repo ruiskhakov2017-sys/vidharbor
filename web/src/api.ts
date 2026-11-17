@@ -16,11 +16,12 @@ export class ApiError extends Error {
 
 export async function api<T>(
   path: string,
-  options?: { csrf: string; data?: object },
+  options?: { csrf: string; data?: object; traceparent?: string },
 ): Promise<T> {
   const response = await fetch(path, options ? {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-CSRFToken": options.csrf },
+    headers: { "Content-Type": "application/json", "X-CSRFToken": options.csrf,
+      ...(options.traceparent ? { traceparent: options.traceparent } : {}) },
     body: JSON.stringify(options.data ?? {}),
   } : undefined);
   const body = await response.json().catch(() => null);
@@ -32,7 +33,7 @@ export async function api<T>(
 }
 
 export function sendFile(id: string, file: File, csrf: string, onProgress: (percent: number) => void) {
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<string | undefined>((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("PUT", "/api/uploads/" + id + "/content");
     request.responseType = "json";
@@ -43,7 +44,8 @@ export function sendFile(id: string, file: File, csrf: string, onProgress: (perc
     };
     request.onload = () => {
       if (request.status >= 200 && request.status < 300) {
-        resolve();
+        const parent = request.getResponseHeader("traceparent");
+        resolve(parent && /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/.test(parent) ? parent : undefined);
       } else {
         reject(new ApiError(request.response?.error ?? "Файл не передан. Повторите загрузку.", request.status));
       }

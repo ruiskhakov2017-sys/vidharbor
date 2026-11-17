@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     "vidharbor",
 ]
 MIDDLEWARE = [
+    "vidharbor.telemetry.RequestTelemetry",
     "django.middleware.security.SecurityMiddleware",
     "vidharbor.safety.SafetyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -77,3 +78,6 @@ if not 1 <= FFMPEG_TIMEOUT <= 10800:
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", "5368709120"))
 if not 1 <= MAX_UPLOAD_BYTES <= 5 * 1024**3:
     raise ValueError("MAX_UPLOAD_BYTES must be between 1 and 5368709120")
+
+from .telemetry import logging_config
+LOGGING = logging_config()

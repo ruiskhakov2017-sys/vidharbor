@@ -1,6 +1,11 @@
 name: vidharbor
 
+x-logging: &bounded-logging
+  driver: json-file
+  options: {max-size: 1m, max-file: "3"}
+
 x-django: &django
+  logging: *bounded-logging
   build:
     context: ./api
     target: app
@@ -26,6 +31,7 @@ x-django-health: &django-health
 
 services:
   web:
+    logging: *bounded-logging
     build: ./web
     ports:
       - "127.0.0.1:${VIDHARBOR_PORT:-8085}:80"
@@ -143,6 +149,7 @@ services:
     cpus: 0.5
 
   db:
+    logging: *bounded-logging
     image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     environment:
       POSTGRES_DB: ${VIDHARBOR_DB_NAME:-vidharbor}
@@ -162,6 +169,7 @@ services:
     cpus: 1
 
   rabbitmq:
+    logging: *bounded-logging
     image: rabbitmq:4.2-alpine@sha256:dea0f5843025e0c3c1a128b14fc2e181ea59ff369e7048e6a7fbac83bd8c4f9d
     hostname: rabbitmq
     init: true

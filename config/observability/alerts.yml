@@ -1,0 +1,28 @@
+groups:
+  - name: vidharbor-learning
+    rules:
+      - alert: VidHarborMetricsCollectionUnavailable
+        expr: vidharbor_metrics_collection_up == 0
+        for: 15s
+        labels: {severity: warning}
+        annotations: {summary: "The isolated collector timed out, failed, or has no fresh snapshot"}
+      - alert: VidHarborMetricsTargetUnavailable
+        expr: up{job=~"vidharbor-.*"} == 0
+        for: 30s
+        labels: {severity: warning}
+        annotations: {summary: "A private application metrics target is unavailable"}
+      - alert: VidHarborDependencyUnavailable
+        expr: vidharbor_backend_up == 0
+        for: 15s
+        labels: {severity: warning}
+        annotations: {summary: "A database or broker scrape failed"}
+      - alert: VidHarborOutboxDelayed
+        expr: vidharbor_command_outbox_oldest_age_seconds > 120
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "Due commands remain unconfirmed"}
+      - alert: VidHarborWebhookNeedsReview
+        expr: vidharbor_webhook_deliveries{state=~"failed|blocked"} > 0
+        for: 30s
+        labels: {severity: warning}
+        annotations: {summary: "A delivery requires investigation"}

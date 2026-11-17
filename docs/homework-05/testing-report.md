@@ -1,8 +1,10 @@
 # Отчёт о проверках VidHarbor
 
-**Актуальный итог, 2026-11-15:** локальный S05/S06 и учебный S08 проверены на ветке feature/s05-s08-completion от опубликованного main 047577f. Полный Django-набор: **72 PASS / 0 FAIL**, PostgreSQL, миграции согласованы. [Единый протокол с логами, ресурсами, причинами прежних ошибок и остатком](protocols/s05-s08-completion.md).
+**Текущий итог после Review, 2026-11-17:**91/91 Django PASS в каждом режиме telemetry on/off;8-span trace включает реальную передачу байтов и READY, Chrome подтвердил перенос заголовка самим Vue. Настоящий pg_sleep(30) в изолированном сборщике ограничен2 с; каталог и scrape отвечают параллельно. [Новые evidence/границы](protocols/s07-review-fixes.md). GitHub CI/artifact availability **Not Run**, изменения локальные и не закоммичены.
 
-Сводка ниже содержит исторические результаты прежних этапов: их прежние блокировки/количество тестов не описывают текущую ветку. Базовый orphan/flock исправлен опубликованным PR #8; полная отказная регрессия повторена успешно. S07 ожидает исходный план, настоящие n8n/Sheets и production условия не проверены. AC-007/AC-009 и весь S06/S08 не закрываются.
+**Предыдущий итог f1f1a47, 2026-11-16 (история):** база main 73db264 уже содержит принятый S05/S06/учебный S08 и rollback-recovery удаления. В отдельной неопубликованной ветке feature/s07-observability реализован S07 по явно разрешённому scope P06–P10. PostgreSQL/Django **83 PASS / 0 FAIL**, миграции без изменений, supervisor 3/3 и restore guards 5/5 PASS. Сквозной реальный trace, JSON privacy, Prometheus/Grafana, браузер панели, rotation и реальные отказы/восстановление проверены. [S07: команды, условия, evidence](protocols/s07-observability.md).
+
+Ниже сохранена история прежних этапов с их исходными количеством тестов/блокировками; она **не описывает текущее состояние**. [Принятые S05–S08](protocols/s05-s08-completion.md) не реализовывались повторно. Большой3.53 GB/backup/restore сегодня не повторялись; прежний same-host PASS сохранён, не перенесён на непроверенный public deployment. Оригинальный plan 2d65cb9 не найден. Новый GitHub CI, настоящие n8n/Sheets, публичный TLS/сервер/жёсткие caps и независимый carrier **Not Run**. AC-007/AC-009, S07/S08 и Homework 005 полностью не закрываются.
 
 ## S01
 
@@ -75,7 +77,7 @@ S04 сохранён отдельным локальным коммитом 4680
 
 Полный smoke_s04_faults.py завершился FAIL на orphan/flock после успешных предшествующих сценариев. Целевой probe на неизменённом 1d609a7 воспроизвёл удержание descriptor отдельным timeout после killpg. Базовый supervisor не исправлялся, полный PASS S04 не заявляется. Нативная браузерная матрица и оставшиеся за точкой сбоя проверки Not Run. T501.2 ожидает независимого Review; весь S05 не завершён, T502/T503 и S06 не реализовывались. [Команды, имитации, журналы и ограничения](protocols/s05-reprocessing.md).
 
-## S05–S08 · Текущая объединённая ветка
+## S05–S08 · Принятый исторический прогон до публикации
 
 | Проверка | Факт |
 |---|---|
@@ -88,3 +90,22 @@ S04 сохранён отдельным локальным коммитом 4680
 | Границы | Same-host drill, Docker cgroup driver=none, targets RPO/RTO/retention/carrier не согласованы. S07 и реальные n8n/Sheets/серверное демо не завершены |
 
 Полные условия, версии браузеров, доступные логи, конкретные команды и актуальные дополнительные проверки — в [сводном протоколе](protocols/s05-s08-completion.md). Исторические протоколы не переписаны и не заменены новыми декларациями PASS.
+
+## S07 · Текущий облачный прогон
+
+| Проверка | Факт |
+|---|---|
+| PostgreSQL/Django |83 PASS /0 FAIL,22.790 с;9 новых tests T701/T702 относительно74 в опубликованной базе |
+| Миграции |makemigrations --check --dry-run: No changes detected; migrate --check: exit0; новых migrations нет |
+| Supervisor / restore guards |3 PASS /0 FAIL и5 PASS /0 FAIL; без повторного backup/restore |
+| Реальный путь |HTTP upload→Outbox→Rabbit→FFmpeg→READY: SUCCEEDED,1Attempt/1READY, original SHA совпал |
+| Trace / logs |trace 82f77f97135deec8813a64d7c8bab838,6spans с правильными parent/durations/services;1997JSONrecords,7linked events, sensitive markers отсутствуют |
+| Метрики / панель |5scrape targets, реальные API error/latency, failed job/DLQ, loopback webhook, success/ready delta; Grafana query и Chrome rendering PASS |
+| Отказы |Tempo down не мешает новому READY; exporter failure/recovery измерены. Prometheus down дал datasource failure, restart вернул frames. Broker down: outbox pending, alert firing, live 200/ready 503; recovery завершил ту же команду/trace |
+| Ротация / конфигурации |6000probe lines→2155retained/3files, json-file 1m×3; promtool config/4rules, actionlint, JSON/compile/Compose проверки |
+| S01 regression |Chrome 156.0.8078.79 отрисовал Vue; API live 200, ready200→503→200 при каждом dependency outage |
+| Frontend |Docker web build PASS с cached TypeScript/Vite layer; исходники frontend не менялись, новый независимый tsc/vite прогон не заявляется |
+| Offline preparation |HTTPS template nginx-t PASS с временным cert/no-network/no-ports; disabled Django exact host/HTTPS CSRF/cookies/proxy и4invalid hosts проверены; synthetic S06 payload valid |
+| GitHub CI |Not Run: push/PR запрещены. Новый workflow не запускался на GitHub; локальные checks и старый зелёный main не равны этому запуску |
+
+Точные команды, SHA checkpoints, управляемые cloud overrides, известные первичные FAIL и пределы доказательств — в [S07 protocol](protocols/s07-observability.md). [Внешняя интеграция](integration-rehearsal.md) и [public checklist](public-deployment.md) остаются подготовкой. Нельзя присвоить PASS реальной Google записи, публичному TLS, независимому host-loss restore или cgroup caps по этим файлам.

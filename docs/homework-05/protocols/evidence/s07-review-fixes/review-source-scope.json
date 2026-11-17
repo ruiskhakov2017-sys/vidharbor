@@ -1,0 +1,38 @@
+{
+  "status": "PASS",
+  "runtime_used_modules_match_source": {
+    "api": [
+      "metrics.py",
+      "telemetry.py"
+    ],
+    "upload": [
+      "uploads.py",
+      "metrics.py",
+      "telemetry.py",
+      "metrics_sampler.py",
+      "test_telemetry.py",
+      "test_metrics_sampler.py"
+    ],
+    "metrics": [
+      "metrics.py",
+      "telemetry.py",
+      "metrics_sampler.py",
+      "management/commands/collect_metrics.py",
+      "management/commands/serve_metrics.py"
+    ]
+  },
+  "unchanged_protected_files": [
+    "api/vidharbor/deletion.py",
+    "api/vidharbor/notifications.py",
+    ".github/workflows/django-tests.yml",
+    ".github/workflows/s01-ci.yml",
+    "scripts/s08.py"
+  ],
+  "new_migrations": false,
+  "metrics_published_ports": false,
+  "live_prometheus_values": {
+    "vidharbor_metrics_collection_up": 1.0,
+    "vidharbor_processing_jobs{state=\"ready\"}": 13.0,
+    "vidharbor_backend_up{backend=\"postgres\"}": 1.0
+  }
+}
