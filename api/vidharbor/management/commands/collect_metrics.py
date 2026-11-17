@@ -7,6 +7,10 @@ from vidharbor.metrics import DatabaseCollector
 
 
 class Command(BaseCommand):
+    # The disposable read-only collector must not import/check every HTTP view
+    # on each sample. Full system checks run at startup and in the Django job.
+    requires_system_checks = []
+
     def handle(self, *args, **options):
         try:
             with connection.cursor() as cursor:
