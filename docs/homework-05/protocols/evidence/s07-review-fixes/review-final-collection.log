@@ -1,0 +1,13 @@
+ Container vidharbor-s07-local-metrics-1  Recreate
+ Container vidharbor-s07-local-metrics-1  Recreated
+ Container vidharbor-s07-local-metrics-1  Starting
+ Container vidharbor-s07-local-metrics-1  Started
+ Container vidharbor-s07-local-metrics-1  Waiting
+ Container vidharbor-s07-local-metrics-1  Healthy
+ Container vidharbor-s07-local-metrics-1  Recreate
+ Container vidharbor-s07-local-metrics-1  Recreated
+ Container vidharbor-s07-local-metrics-1  Starting
+ Container vidharbor-s07-local-metrics-1  Started
+ Container vidharbor-s07-local-metrics-1  Waiting
+ Container vidharbor-s07-local-metrics-1  Healthy
+{"status": "PASS", "fault": "real PostgreSQL pg_sleep(30) in isolated collector; inner SQL timeout disabled only for this fault", "collector_deadline_seconds": 2, "last_collection_seconds": 2.0047690129995317, "catalog_requests": 32, "catalog_max_seconds": 0.05099157199947513, "parallel_scrapes": 64, "scrape_max_seconds": 0.03840376599873707, "business_records_unchanged": true, "collection_recovered": true}

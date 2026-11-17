@@ -16,9 +16,9 @@ def main():
     expected={'max-size':'1m','max-file':'3'}
     for service in config['services'].values():
         assert all(port.get('host_ip')=='127.0.0.1' for port in service.get('ports',[])), 'Unexpected public port'
-    for name in ('api','upload','relay','worker','db','rabbitmq'):
+    for name in ('api','upload','relay','worker','db','rabbitmq','metrics'):
         assert not config['services'][name].get('ports'), 'A private component was published'
-    for service in ('api','upload','relay','worker','db','rabbitmq','web','tempo','prometheus','grafana'):
+    for service in ('api','upload','relay','worker','db','rabbitmq','web','tempo','prometheus','grafana','metrics'):
         assert config['services'][service]['logging']=={'driver':'json-file','options':expected},service
     image=json.loads(subprocess.check_output(['docker','inspect',compose('ps','-q','api').strip()]))[0]['Image']
     name=project+'-rotation-'+uuid.uuid4().hex[:8]

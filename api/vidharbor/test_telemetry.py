@@ -2,10 +2,15 @@ import json
 import logging
 import os
 import uuid
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TransactionTestCase
+from django.test import RequestFactory
+from django.http import HttpResponse
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -15,6 +20,7 @@ from . import telemetry
 from .job_attempts import queue_retry
 from .models import Attempt, Outbox, Upload
 from .uploads import queue_video
+from .uploads import write_content
 
 
 class DiagnosticsTests(SimpleTestCase):
@@ -60,6 +66,37 @@ class DiagnosticsTests(SimpleTestCase):
 
 
 class PersistedTraceTests(TransactionTestCase):
+    def test_byte_transfer_and_completion_share_the_persisted_job_trace(self):
+        exporter=InMemorySpanExporter();provider=TracerProvider(resource=Resource({'service.name':'upload'}))
+        provider.add_span_processor(SimpleSpanProcessor(exporter));self.addCleanup(provider.shutdown)
+        owner=get_user_model().objects.create(username='transfer-tracing')
+        upload=Upload.objects.create(owner=owner,title='Not logged',expected_size=3)
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ,{'VIDHARBOR_OBSERVABILITY':'1'}), \
+                patch.object(telemetry,'tracer',return_value=provider.get_tracer('test')):
+            def receive(request):
+                telemetry.identify(upload_id=upload.pk,correlation_id=upload.pk)
+                write_content(request,Path(root)/'bytes',3)
+                return HttpResponse()
+            put=RequestFactory().put('/content',b'abc',content_type='application/octet-stream')
+            put.resolver_match=SimpleNamespace(route='api/uploads/<uuid:upload_id>/content')
+            response=telemetry.RequestTelemetry(receive)(put)
+            def complete(request):
+                telemetry.identify(upload_id=upload.pk,correlation_id=upload.pk)
+                queue_video(upload)
+                return HttpResponse()
+            post=RequestFactory().post('/complete',HTTP_TRACEPARENT=response['traceparent'])
+            post.resolver_match=SimpleNamespace(route='api/uploads/<uuid:upload_id>/complete')
+            telemetry.RequestTelemetry(complete)(post)
+        found={span.name:span for span in exporter.get_finished_spans()}
+        put=found['HTTP PUT /api/uploads/<uuid:upload_id>/content']
+        complete=found['HTTP POST /api/uploads/<uuid:upload_id>/complete']
+        self.assertEqual(complete.parent.span_id,put.context.span_id)
+        self.assertEqual(found['upload.receive'].parent.span_id,put.context.span_id)
+        self.assertEqual(found['job.create'].parent.span_id,complete.context.span_id)
+        self.assertEqual(len({span.context.trace_id for span in found.values()}),1)
+        payload=Outbox.objects.get(job__video__upload=upload).payload
+        self.assertEqual(payload['trace_context']['traceparent'].split('-')[1],f'{put.context.trace_id:032x}')
+
     def test_outbox_and_automatic_retry_keep_original_trace_carrier(self):
         exporter = InMemorySpanExporter(); provider = TracerProvider(resource=Resource({"service.name":"test"}))
         provider.add_span_processor(SimpleSpanProcessor(exporter)); self.addCleanup(provider.shutdown)

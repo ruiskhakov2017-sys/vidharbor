@@ -82,6 +82,7 @@ def set_interrupted(upload):
     upload.save(update_fields=["state", "updated_at"])
 
 
+@telemetry.traced("upload.receive")
 def write_content(request, destination, size):
     digest = hashlib.sha256()
     received = 0

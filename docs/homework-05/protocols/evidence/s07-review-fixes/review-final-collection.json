@@ -1,0 +1,12 @@
+{
+  "status": "PASS",
+  "fault": "real PostgreSQL pg_sleep(30) in isolated collector; inner SQL timeout disabled only for this fault",
+  "collector_deadline_seconds": 2,
+  "last_collection_seconds": 2.0047690129995317,
+  "catalog_requests": 32,
+  "catalog_max_seconds": 0.05099157199947513,
+  "parallel_scrapes": 64,
+  "scrape_max_seconds": 0.03840376599873707,
+  "business_records_unchanged": true,
+  "collection_recovered": true
+}

@@ -124,7 +124,8 @@ def log_event(event, *, error_code="", level=logging.INFO, **technical):
 
 
 def logging_config():
-    handler = {"class": "logging.StreamHandler", "formatter": "json", "stream": "ext://sys.stdout"}
+    handler = {"class": "logging.StreamHandler", "formatter": "json",
+               "stream": "ext://sys.stderr" if "collect_metrics" in sys.argv else "ext://sys.stdout"}
     return {"version": 1, "disable_existing_loggers": False,
             "formatters": {"json": {"()": "vidharbor.telemetry.JsonFormatter"}},
             "handlers": {"json": handler},

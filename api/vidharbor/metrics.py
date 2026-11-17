@@ -32,8 +32,6 @@ COMPONENT_READY = Gauge("vidharbor_component_ready", "Last component readiness o
 ACTIVE_DELIVERIES = Gauge("vidharbor_active_deliveries", "Currently executing delivery threads", ["service"])
 _state = {"ready":False, "tick":0.0}
 _server = None
-_collector_registered = False
-_lock = threading.Lock()
 
 
 def observe_http(method, route, status, seconds):
@@ -136,10 +134,8 @@ class DatabaseCollector:
 
 
 def render():
-    global _collector_registered
-    with _lock:
-        if telemetry.service()=="api" and not _collector_registered:
-            REGISTRY.register(DatabaseCollector());_collector_registered=True
+    # HTTP workers expose process counters only. All database/broker collection
+    # runs in the isolated optional metrics service, never in an API thread.
     return generate_latest(REGISTRY)
 
 

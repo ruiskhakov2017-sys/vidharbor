@@ -1,0 +1,74 @@
+{
+  "status": "PASS",
+  "project": "vidharbor-s07-local",
+  "base": "http://127.0.0.1:8120",
+  "github_ci": "Not Run (no push/PR authorized)",
+  "created": {
+    "video_id": "f03a9289-465d-4a9d-b7ef-c26bbb4617e9",
+    "job_id": "2b82019e-1976-4700-87e4-3ca748a1ad4a",
+    "message_id": "572f80e3-420e-49a0-ac12-1026d7359d67"
+  },
+  "correlation_id": "803bdf3e-8389-4bfd-b0a7-f4beada2538a",
+  "trace_id": "b856dba695f1af05f463fdc0b849409c",
+  "upload_transfer": {
+    "parent": "00-b856dba695f1af05f463fdc0b849409c-296ba13da9af5298-03",
+    "wall_ms": 106.72745299962116,
+    "receive_ms": 61.690355,
+    "same_trace_through_ready": true
+  },
+  "trace_spans": [
+    {
+      "name": "HTTP PUT /api/uploads/<uuid:upload_id>/content",
+      "service": "upload",
+      "duration_ms": 97.580974
+    },
+    {
+      "name": "upload.receive",
+      "service": "upload",
+      "duration_ms": 61.690355
+    },
+    {
+      "name": "HTTP POST /api/uploads/<uuid:upload_id>/complete",
+      "service": "upload",
+      "duration_ms": 119.466051
+    },
+    {
+      "name": "job.create",
+      "service": "upload",
+      "duration_ms": 8.247842
+    },
+    {
+      "name": "outbox.publish",
+      "service": "relay",
+      "duration_ms": 11.835569
+    },
+    {
+      "name": "worker.process",
+      "service": "worker",
+      "duration_ms": 1958.941648
+    },
+    {
+      "name": "ffmpeg.encode",
+      "service": "worker",
+      "duration_ms": 1871.520476
+    },
+    {
+      "name": "video.publish",
+      "service": "worker",
+      "duration_ms": 4.192072
+    }
+  ],
+  "persisted": {
+    "state": "SUCCEEDED",
+    "carrier": {
+      "traceparent": "00-b856dba695f1af05f463fdc0b849409c-a678f2978c3282b9-03"
+    },
+    "sent": true,
+    "attempts": 1,
+    "ready_events": 1,
+    "sha256": "340d555f4b4466940c180691788b4f9a980db375fef2434b8f3d1ad2a468f003"
+  },
+  "linked_log_records": 8,
+  "json_log_records": 730,
+  "privacy": "PASS: no title/user/password/cookie/CSRF values"
+}

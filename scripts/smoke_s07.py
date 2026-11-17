@@ -85,12 +85,18 @@ def main():
             return {'X-CSRFToken':token}
         http(opener,base+'/api/auth/register',method='POST',data={'username':username,'password':password},headers=csrf(),expected=201)
         http(opener,base+'/api/auth/login',method='POST',data={'username':username,'password':password},headers=csrf())
+        transfers={}
         def make_upload(value):
             sensitive.append(value)
             raw,_=http(opener,base+'/api/uploads',method='POST',data={'title':value,'size':args.fixture.stat().st_size},headers=csrf(),expected=201)
             upload_id=json.loads(raw)['id'];uuid.UUID(upload_id)
-            http(opener,base+f'/api/uploads/{upload_id}/content',method='PUT',data=args.fixture.read_bytes(),headers={**csrf(),'Content-Type':'application/octet-stream'})
-            raw,headers=http(opener,base+f'/api/uploads/{upload_id}/complete',method='POST',headers=csrf())
+            put_headers={**csrf(),'Content-Type':'application/octet-stream'}
+            content=args.fixture.read_bytes();started=time.monotonic()
+            _,put_headers=http(opener,base+f'/api/uploads/{upload_id}/content',method='PUT',data=content,headers=put_headers)
+            parent={key.lower():value for key,value in put_headers.items()}['traceparent']
+            transfers[upload_id]={'parent':parent,'wall_ms':(time.monotonic()-started)*1000}
+            raw,headers=http(opener,base+f'/api/uploads/{upload_id}/complete',method='POST',headers={**csrf(),'traceparent':parent})
+            assert {key.lower():value for key,value in headers.items()}['traceparent'].split('-')[1]==parent.split('-')[1]
             return json.loads(raw),headers
         created,headers=make_upload(title);report['created']=created
         upload_id={key.lower():value for key,value in headers.items()}['x-correlation-id']
@@ -112,8 +118,9 @@ def main():
                 raw,_=http(guest,tempo+'/api/traces/'+trace_id,headers={'Accept':'application/json'})
                 trace=json.loads(raw);found=spans(trace)
                 names={span['name']:span for span in found}
-                required={'job.create','outbox.publish','worker.process','ffmpeg.encode','video.publish'}
-                if required <= names.keys() and any(name.startswith('HTTP POST') for name in names):break
+                required={'upload.receive','job.create','outbox.publish','worker.process','ffmpeg.encode','video.publish',
+                    'HTTP PUT /api/uploads/<uuid:upload_id>/content','HTTP POST /api/uploads/<uuid:upload_id>/complete'}
+                if required <= names.keys():break
             except (AssertionError, URLError):
                 pass
             assert time.monotonic()<deadline,'A complete real distributed trace did not arrive'
@@ -121,8 +128,14 @@ def main():
         for span in found:
             assert normalized_id(span['traceId'],16)==trace_id
             assert int(span['endTimeUnixNano'])>int(span['startTimeUnixNano'])
-        for child,parent in (('outbox.publish','job.create'),('worker.process','outbox.publish'),('ffmpeg.encode','worker.process'),('video.publish','worker.process')):
+        put='HTTP PUT /api/uploads/<uuid:upload_id>/content';complete='HTTP POST /api/uploads/<uuid:upload_id>/complete'
+        for child,parent in (('upload.receive',put),(complete,put),('job.create',complete),('outbox.publish','job.create'),('worker.process','outbox.publish'),('ffmpeg.encode','worker.process'),('video.publish','worker.process')):
             assert normalized_id(names[child]['parentSpanId'],8)==normalized_id(names[parent]['spanId'],8),(child,parent)
+        receive=names['upload.receive'];transfer=transfers[upload_id]
+        assert normalized_id(names[put]['spanId'],8)==transfer['parent'].split('-')[2]
+        assert int(names[put]['startTimeUnixNano'])<=int(receive['startTimeUnixNano'])<int(receive['endTimeUnixNano'])<=int(names[put]['endTimeUnixNano'])
+        assert (int(names[put]['endTimeUnixNano'])-int(names[put]['startTimeUnixNano']))/1e6 <= transfer['wall_ms']+100
+        report['upload_transfer']={**transfer,'receive_ms':(int(receive['endTimeUnixNano'])-int(receive['startTimeUnixNano']))/1e6,'same_trace_through_ready':True}
         assert {names[name]['service'] for name in required} >= {'upload','relay','worker'}
         persisted=database('import json; from vidharbor.models import Job,Outbox; from vidharbor.storage import original_path,file_digest; '
             +f'j=Job.objects.get(pk={created["job_id"]!r}); m=Outbox.objects.get(pk={created["message_id"]!r}); '

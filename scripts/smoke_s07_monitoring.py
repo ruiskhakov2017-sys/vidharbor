@@ -41,13 +41,14 @@ def verify_monitoring(opener,guest,base,csrf,make_upload,created,output):
         if not values and missing:return 0
         assert values,('Missing metric',expr)
         return float(values[0]['value'][1])
-    wait_for(lambda:query('sum(up{job=~"vidharbor-.*"})')==5,'All five real application targets must be scraped')
+    wait_for(lambda:query('sum(up{job=~"vidharbor-.*"})')==6,'All six real application targets must be scraped')
+    wait_for(lambda:query('vidharbor_metrics_collection_up')==1,'Isolated durable collector must have a fresh snapshot')
     assert json.loads(http(guest,grafana+'/api/health',headers=auth)[0])['database']=='ok'
     http(guest,base+'/internal/metrics',expected=404)
     http(guest,base+'/metrics',expected=404)
     unauthorized=database("import json,urllib.request,urllib.error; r=urllib.request.Request('http://api:8000/internal/metrics');\ntry: urllib.request.urlopen(r,timeout=5)\nexcept urllib.error.HTTPError as e: print(json.dumps({'status':e.code}))")
     assert unauthorized['status']==401
-    result['private_metrics']='PASS: web 404, direct API without token 401; five authenticated targets up'
+    result['private_metrics']='PASS: web 404, direct API without token 401; six authenticated targets up'
 
     before=query('sum(vidharbor_http_errors_total{status_class="4xx"})',missing=True)
     http(opener,base+'/api/uploads',method='POST',data={'title':'invalid fixture','size':0},headers=csrf(),expected=400)

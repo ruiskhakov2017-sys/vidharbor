@@ -41,6 +41,28 @@ services:
     environment: *telemetry
     secrets: [telemetry_metrics_token]
     healthcheck: *component-health
+  metrics:
+    profiles: [observability]
+    build:
+      context: ./api
+      target: app
+    command: [python, manage.py, serve_metrics]
+    environment:
+      DB_NAME: ${VIDHARBOR_DB_NAME:-vidharbor}
+      DB_USER: ${VIDHARBOR_DB_USER:-vidharbor}
+      RABBITMQ_USER: ${VIDHARBOR_RABBITMQ_USER:-vidharbor}
+      VIDHARBOR_SERVICE_NAME: metrics
+    secrets: [django_secret_key, postgres_password, rabbitmq_password, telemetry_metrics_token]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    init: true
+    mem_limit: 256m
+    cpus: 0.5
+    logging: *diagnostic-logging
+    healthcheck: *component-health
   observability-init:
     profiles: [observability]
     image: busybox:1.37@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec

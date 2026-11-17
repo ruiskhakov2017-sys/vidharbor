@@ -1,5 +1,7 @@
 # Production Practice: факты по VidHarbor
 
+Текущие исправления 17 ноября — [протокол Review](protocols/s07-review-fixes.md). Таблица ниже сохраняет исторический срез f1f1a47; дополнение в конце описывает новую локальную редакцию.
+
 Дата: 2026-11-16. Статус: **учебный облачный стенд, частичное выполнение Homework 005**. Принятый S05/S06/S08 опубликован в main 73db264; новая ветка S07 и серверный deployment не публиковались. [Общий протокол](protocols/s05-s08-completion.md) · [RTM](requirements-traceability.md).
 
 | Требование | Фактическое доказательство | Остаток |
@@ -30,3 +32,7 @@ AC-001, AC-004–006, AC-008 имеют локальные доказатель�
 [S07: точный протокол и evidence](protocols/s07-observability.md). Новый workflow подготовлен, статически проверен и его основные сценарии выполнены в cloud; сам GitHub-run **Not Run**, публикация запрещена. Существующие workflows сохранены. JSON/trace/exporter outage не меняли Job/Attempt/READY/original, Prometheus restart восстановил dashboard, broker recovery завершил durable command с тем же trace.
 
 Offline готовы: [контракт и матрица учебного n8n/Sheets](integration-rehearsal.md), [HTTPS/topology/resources/update/rollback](public-deployment.md), [варианты независимых копий/authority](backup-restore.md#независимый-носитель-подготовленные-варианты-не-внедрение), [30 тем для объяснения](theory-notes.md). Это подготовка, а не внешние PASS. Ни provider/бюджет/retention/RPO/RTO, ни production SLO не выбраны за владельца. P06–P10 VidHarbor не закрывают соответствующую практику KazanCourts.
+
+## Исправления после независимого Review S07,17 ноября 2026
+
+[Протокол](protocols/s07-review-fixes.md): P08 теперь включает браузерный PUT/upload.receive и complete в одной 8-span цепочке до READY. P09/P10:6 private scrape targets, durable collector вынесен из API; реальный pg_sleep(30) ограничен2 с при работающем каталоге. Django 91/91 в обоих режимах. T703: visible evidence path исправлен и workflow расширен, но доступность artifact в GitHub Actions пока Not Run. Ни эти локальные PASS, ни исправление YAML не закрывают внешнюю приёмку/CP5/Homework.

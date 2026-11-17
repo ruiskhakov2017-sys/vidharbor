@@ -23,7 +23,7 @@ jobs:
       VIDHARBOR_PORT: "8120"
       VIDHARBOR_PUBLIC_BASE_URL: http://127.0.0.1:8120
       VIDHARBOR_SECRETS_DIR: /tmp/vidharbor-s07-secrets
-      NO_PROXY: localhost,127.0.0.1,api,upload,db,rabbitmq,tempo,prometheus,grafana
+      NO_PROXY: localhost,127.0.0.1,api,upload,db,rabbitmq,tempo,prometheus,grafana,metrics
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -32,7 +32,7 @@ jobs:
       - name: Prepare isolated temporary credentials
         run: |
           umask 077
-          mkdir -p "$VIDHARBOR_SECRETS_DIR" .s07-evidence
+          mkdir -p "$VIDHARBOR_SECRETS_DIR" s07-evidence
           for name in django_secret_key postgres_password rabbitmq_password telemetry_metrics_token grafana_admin_password; do
             openssl rand -hex 32 > "$VIDHARBOR_SECRETS_DIR/$name"
             chmod 0444 "$VIDHARBOR_SECRETS_DIR/$name"
@@ -55,26 +55,34 @@ jobs:
       - name: Verify actual logs, trace, metrics, dashboard query and recovery
         run: |
           python3 scripts/smoke_s07.py --monitoring --fixture "$RUNNER_TEMP/s07-fixture.mkv" \
-            --report .s07-evidence/acceptance.json
+            --report s07-evidence/acceptance.json
 
       - name: Render provisioned dashboard in system Chrome
         run: |
           python3 -m venv "$RUNNER_TEMP/s07-browser"
           "$RUNNER_TEMP/s07-browser/bin/pip" install --disable-pip-version-check --only-binary=:all: -r scripts/requirements-smoke.txt
-          "$RUNNER_TEMP/s07-browser/bin/python" scripts/smoke_s07_dashboard.py --report .s07-evidence/dashboard.json
+          "$RUNNER_TEMP/s07-browser/bin/python" scripts/smoke_s07_dashboard.py --report s07-evidence/dashboard.json
+
+      - name: Verify Vue propagates the byte-transfer trace through READY
+        run: |
+          "$RUNNER_TEMP/s07-browser/bin/python" scripts/smoke_s07_browser_upload.py \
+            --fixture "$RUNNER_TEMP/s07-fixture.mkv" --report s07-evidence/browser-upload.json
+
+      - name: Check catalogue and scrapes during a real blocked collector
+        run: python3 scripts/smoke_s07_collection.py --report s07-evidence/collection-isolation.json
 
       - name: Verify real log rotation
-        run: python3 scripts/smoke_s07_rotation.py --report .s07-evidence/rotation.json
+        run: python3 scripts/smoke_s07_rotation.py --report s07-evidence/rotation.json
 
       - name: Static checks of new Python and dashboard
         run: |
-          python3 -m compileall -q api/vidharbor/telemetry.py api/vidharbor/metrics.py scripts/smoke_s07*.py
+          python3 -m compileall -q api/vidharbor scripts/smoke_s07*.py
           python3 -m json.tool config/observability/dashboards/vidharbor.json > /dev/null
           git diff --check
 
       - name: Check disabled public templates offline
         run: |
-          python3 scripts/check_public_templates.py --nginx-image "$(docker compose --env-file .env.example images -q web)" --report .s07-evidence/public-templates.json
+          python3 scripts/check_public_templates.py --nginx-image "$(docker compose --env-file .env.example images -q web)" --report s07-evidence/public-templates.json
           install -m 0644 config/deployment/public_settings.py "$RUNNER_TEMP/public_settings.py"
           install -m 0644 config/integrations/video-ready.example.json "$RUNNER_TEMP/video-ready.json"
           docker compose --env-file .env.example run --rm --no-deps \
@@ -85,14 +93,14 @@ jobs:
       - name: Check evidence before upload
         id: safe_evidence
         if: always()
-        run: python3 scripts/check_s07_evidence.py .s07-evidence "$VIDHARBOR_SECRETS_DIR"
+        run: python3 scripts/check_s07_evidence.py s07-evidence "$VIDHARBOR_SECRETS_DIR"
 
       - name: Upload only checked diagnostic evidence
         if: always() && steps.safe_evidence.outcome == 'success'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: s07-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .s07-evidence/
+          path: s07-evidence/
           retention-days: 3
           if-no-files-found: error
 

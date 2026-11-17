@@ -1,6 +1,11 @@
 groups:
   - name: vidharbor-learning
     rules:
+      - alert: VidHarborMetricsCollectionUnavailable
+        expr: vidharbor_metrics_collection_up == 0
+        for: 15s
+        labels: {severity: warning}
+        annotations: {summary: "The isolated collector timed out, failed, or has no fresh snapshot"}
       - alert: VidHarborMetricsTargetUnavailable
         expr: up{job=~"vidharbor-.*"} == 0
         for: 30s

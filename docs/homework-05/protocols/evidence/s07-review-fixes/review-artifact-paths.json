@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "artifact_path": "s07-evidence/",
+  "report_paths": [
+    "s07-evidence/acceptance.json",
+    "s07-evidence/dashboard.json",
+    "s07-evidence/browser-upload.json",
+    "s07-evidence/collection-isolation.json",
+    "s07-evidence/rotation.json",
+    "s07-evidence/public-templates.json"
+  ],
+  "github_upload_availability": "Not Run: implementation branch was not published"
+}

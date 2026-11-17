@@ -4,7 +4,7 @@
 
 **Стек:** Vue + TypeScript, Django + Django REST Framework, PostgreSQL, RabbitMQ, собственный Python worker, FFmpeg, HLS/hls.js, Nginx, n8n/Google Sheets, Docker Compose, OpenTelemetry, Prometheus, Grafana и Tempo. Базовые проверки Compose запускаются через GitHub Actions. Полный Django-набор и S01 работают в GitHub Actions; отдельный S07 workflow подготовлен, но ещё не опубликован.
 
-**Текущее состояние (2026-11-16)** — база main 73db264 уже содержит принятый S05, локальный отправитель S06 и учебный backup/clean restore S08, включая исправление rollback удаления. В отдельной неопубликованной ветке S07 добавлены реальные JSON/correlation/OpenTelemetry→Tempo, Prometheus/Grafana, приватный доступ/retention/ротация и автоматические smoke-проверки. PostgreSQL Django 83 PASS, облачный end-to-end trace и живая панель проверены. GitHub CI этой ветки Not Run. Настоящие n8n/Google Sheets, публичный HTTPS/сервер, независимый backup carrier и приёмка Homework 005 ещё открыты.
+**Текущее состояние (2026-11-17)** — база main 73db264 уже содержит принятый S05, локальный отправитель S06 и учебный backup/clean restore S08, включая исправление rollback удаления. В отдельной неопубликованной ветке S07 добавлены реальные JSON/correlation/OpenTelemetry→Tempo, Prometheus/Grafana, приватный доступ/retention/ротация и автоматические smoke-проверки. PostgreSQL Django 91 PASS, облачный end-to-end trace и живая панель проверены. GitHub CI этой ветки Not Run. Настоящие n8n/Google Sheets, публичный HTTPS/сервер, независимый backup carrier и приёмка Homework 005 ещё открыты.
 
 [Общий протокол с логами](docs/homework-05/protocols/s05-s08-completion.md) · [Запуск в Linux/облаке и обновление](docs/homework-05/operations.md) · [Резервная копия и clean restore](docs/homework-05/backup-restore.md) · [Оставшиеся задачи](tasks.md).
 
@@ -72,3 +72,5 @@ curl.exe -i http://127.0.0.1:8085/health/ready
 [S07: протокол и доказательства](docs/homework-05/protocols/s07-observability.md) · [Учебный n8n/Sheets: точный контракт и сценарии](docs/homework-05/integration-rehearsal.md) · [Offline HTTPS/серверный checklist](docs/homework-05/public-deployment.md) · [Выбор независимых копий/authority](docs/homework-05/backup-restore.md#независимый-носитель-подготовленные-варианты-не-внедрение).
 
 Эти шаблоны не являются выполненным deployment, подключением Google или доказательством восстановления после потери хоста. Самостоятельные публикация/merge/deployment в текущей задаче не выполняются.
+
+После Review f1f1a47: [три исправления S07 и фактические проверки](docs/homework-05/protocols/s07-review-fixes.md). Vue связывает передачу байтов и READY одним trace; SQL/Rabbit сбор метрик изолирован от HTTP API и ограничен deadline; CI reports перенесены в видимую s07-evidence/. Изменения ещё не закоммичены/не опубликованы, GitHub artifact availability Not Run.

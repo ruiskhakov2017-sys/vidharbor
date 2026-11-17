@@ -22,6 +22,7 @@ createApp({
     const status = ref("");
     const progress = ref<number>();
     const pending = ref<string>();
+    const pendingTrace = ref<string>();
     const editing = ref<string>();
     const editedTitle = ref("");
     // Keep the original failed job across an uncertain HTTP outcome, even if polls change it.
@@ -86,10 +87,11 @@ createApp({
       if (!pending.value) return;
       status.value = "Проверяем файл";
       try {
-        await api("/api/uploads/" + pending.value + "/complete", { csrf });
+        await api("/api/uploads/" + pending.value + "/complete", { csrf, traceparent: pendingTrace.value });
       } catch (failure) {
         if (failure instanceof ApiError && failure.status < 500 && !failure.retryAfter) {
           pending.value = undefined;
+          pendingTrace.value = undefined;
           status.value = "";
         } else {
           status.value = "Проверку можно повторить";
@@ -97,6 +99,7 @@ createApp({
         throw failure;
       }
       pending.value = undefined;
+      pendingTrace.value = undefined;
       status.value = "Видео принято и ожидает обработки";
     }
 
@@ -118,12 +121,13 @@ createApp({
           const upload = await api<{ id: string }>("/api/uploads", {
             csrf, data: { title: data.get("title"), size: file.size },
           });
-          await sendFile(upload.id, file, csrf, (percent) => { progress.value = percent; });
+          pendingTrace.value = await sendFile(upload.id, file, csrf, (percent) => { progress.value = percent; });
           progress.value = 100;
           pending.value = upload.id;
           form.reset();
         } catch (failure) {
           status.value = "";
+          pendingTrace.value = undefined;
           progress.value = undefined;
           throw failure;
         }
@@ -151,6 +155,7 @@ createApp({
         status.value = "";
         progress.value = undefined;
         pending.value = undefined;
+        pendingTrace.value = undefined;
         editing.value = undefined;
         editedTitle.value = "";
         pendingRetries.value = {};

@@ -131,19 +131,19 @@
 
 ## S07 · Диагностика и автоматические проверки
 
-Реализация выполнена по явному разрешению владельца P06–P10 с тестовым получателем. Оригинал `implementation-plan-s07.md`/2d65cb9 не найден; новый «согласованный план» не выдумывался. Его получение/сверка остаются открытыми. [Протокол S07](docs/homework-05/protocols/s07-observability.md). Весь S07 не объявляется завершённым до независимого Review и фактического GitHub CI.
+Реализация выполнена по явному разрешению владельца P06–P10 с тестовым получателем. Оригинал `implementation-plan-s07.md`/2d65cb9 не найден; новый «согласованный план» не выдумывался. Его получение/сверка остаются открытыми. [Протокол S07](docs/homework-05/protocols/s07-observability.md), [исправления после Review](docs/homework-05/protocols/s07-review-fixes.md). Весь S07 не объявляется завершённым до независимого Review и фактического GitHub CI.
 
 - [x] **T701** Реализовано и проверено на отдельном облачном стенде.
   - [x] JSON API/relay/worker, timestamp/level/service/event/error_code, безопасные ID; по trace ID найдены связанные события, title/user/password/cookies/CSRF не попали в логи.
-  - [x] Реальные OpenTelemetry SDK spans HTTP→job.create→Outbox/Rabbit→worker→FFmpeg→READY в Tempo; parent IDs/durations/service names проверены. Carrier сохранён в PostgreSQL/повторах, correlation=Upload UUID.
+  - [x] Реальные OpenTelemetry SDK spans HTTP PUT/upload.receive→HTTP complete→job.create→Outbox/Rabbit→worker→FFmpeg→READY в Tempo; parent IDs/durations/service names проверены. Carrier сохранён в PostgreSQL/повторах, correlation=Upload UUID.
 - [x] **T702** Реализовано и проверено локально; production caps отдельно.
-  - [x] API/processing/state/result/duration/outbox/queue/retry/DLQ/webhook metrics, authenticated Prometheus scrape, живая Grafana и реальные success/failure/recovery изменения.
+  - [x] API/processing/state/result/duration/outbox/queue/retry/DLQ/webhook metrics, отдельный deadline-limited collector без I/O в API scrape, authenticated Prometheus scrape, живая Grafana и реальные success/failure/recovery изменения.
   - [x] Live/ready API и компонентов; broker down: relay/worker live 200/ready 503, после восстановления готовы. S01 проверяет также PostgreSQL outage.
   - [x] json-file 1m×3, фактическая ротация на disposable probe, отдельные retention/доступ для telemetry; минимальные локальные alert rules.
   - [x] P01–P10 сверены на учебном стенде; original plan reconciliation/публичная эксплуатация не заявлены.
 - [ ] **T703** Автоматизация подготовлена; GitHub run **Not Run** до разрешения push.
-  - [x] Существующие Django/S01/supervisor/restore workflow сохранены. Новый отдельный S07 workflow проверяет настоящие log/correlation/trace/metrics/panel/outages/rotation; failure даёт nonzero, always-cleanup и проверенный artifact.
-  - [x] Локальный workflow-equivalent smoke, PostgreSQL Django 83/83, migrations, guards, Chrome, конфигурации/actionlint проверены. Канонический тестовый runner проекта — Django unittest, не фиктивный pytest PASS.
+  - [x] Существующие Django/S01/supervisor/restore workflow сохранены. Новый отдельный S07 workflow использует s07-evidence/ и проверяет настоящие log/correlation/transfer-to-READY trace/metrics/panel/collector stall/outages/rotation; failure даёт nonzero, always-cleanup и проверенный artifact.
+  - [x] Локальный workflow-equivalent smoke, PostgreSQL Django 91/91, migrations, guards, Chrome, конфигурации/actionlint проверены. Канонический тестовый runner проекта — Django unittest, не фиктивный pytest PASS.
   - [ ] После разрешения на push выполнить GitHub-hosted jobs на точном SHA, сверить официальный Grafana image и cleanup, сохранить ссылки и результаты.
   - [ ] Независимый Review и сверка с оригинальным планом S07 после его получения.
 
