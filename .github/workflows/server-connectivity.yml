@@ -1,0 +1,117 @@
+name: Server connectivity (read only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      check_ssh:
+        description: Authenticate with the dedicated diagnostic key and run read-only commands
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vidharbor-server-connectivity
+  cancel-in-progress: false
+
+jobs:
+  connectivity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      SERVER_HOST: 38.180.15.32
+      SERVER_PORT: '63102'
+      SERVER_DOMAIN: vidharbor.axyro.tech
+    steps:
+      - name: Check DNS and SSH TCP banner without authentication
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          mkdir -p server-connectivity-evidence
+          timeout 60s python3 - <<'PYTHON'
+          import json
+          import os
+          import socket
+          from pathlib import Path
+
+          host = os.environ["SERVER_HOST"]
+          port = int(os.environ["SERVER_PORT"])
+          domain = os.environ["SERVER_DOMAIN"]
+          report = {
+              "host": host, "port": port, "domain": domain,
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "workflow_sha": os.environ["GITHUB_SHA"],
+              "authentication": "Not Run", "deployment": "Not Run",
+          }
+          try:
+              addresses = sorted({r[4][0] for r in socket.getaddrinfo(
+                  domain, None, family=socket.AF_INET, type=socket.SOCK_STREAM)})
+              report["dns_addresses"] = addresses
+              report["dns"] = "PASS" if addresses == [host] else "FAIL"
+          except OSError as exc:
+              report["dns"] = "FAIL"
+              report["dns_error"] = str(exc)
+          try:
+              with socket.create_connection((host, port), timeout=10) as connection:
+                  report["tcp"] = "PASS"
+                  connection.settimeout(5)
+                  banner = connection.recv(255)
+                  report["ssh_banner"] = banner.decode("ascii", errors="replace").strip()
+                  report["ssh_protocol"] = "PASS" if banner.startswith(b"SSH-2.0-") else "FAIL"
+          except OSError as exc:
+              report.setdefault("tcp", "FAIL")
+              report["ssh_protocol"] = "FAIL"
+              report["connection_error"] = str(exc)
+          passed = all(report.get(k) == "PASS" for k in ("dns", "tcp", "ssh_protocol"))
+          report["status"] = "PASS" if passed else "FAIL"
+          text = json.dumps(report, indent=2)
+          Path("server-connectivity-evidence/connectivity.json").write_text(text + "\n")
+          print(text)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("### DNS / SSH transport: " + report["status"] + "\n")
+              summary.write("Target: `" + host + ":" + str(port) + "`. No authentication or deployment in this step.\n")
+          raise SystemExit(0 if passed else 1)
+          PYTHON
+
+      - name: Optional SSH authentication and read-only server identity
+        if: ${{ inputs.check_ssh }}
+        timeout-minutes: 2
+        shell: bash
+        env:
+          DIAGNOSTIC_KEY: ${{ secrets.VIDHARBOR_DIAGNOSTIC_SSH_KEY }}
+          PINNED_HOST_KEYS: ${{ secrets.VIDHARBOR_DIAGNOSTIC_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DIAGNOSTIC_KEY" ] || [ -z "$PINNED_HOST_KEYS" ]; then
+            echo 'Dedicated SSH key and trusted known_hosts secrets are required.' >&2
+            exit 1
+          fi
+          umask 077
+          private_dir=$(mktemp -d "$RUNNER_TEMP/vidharbor-diagnostic.XXXXXX")
+          trap 'rm -rf -- "$private_dir"' EXIT
+          printf '%s\n' "$DIAGNOSTIC_KEY" > "$private_dir/id_ed25519"
+          printf '%s\n' "$PINNED_HOST_KEYS" > "$private_dir/known_hosts"
+          unset DIAGNOSTIC_KEY PINNED_HOST_KEYS
+          ssh-keygen -y -P '' -f "$private_dir/id_ed25519" > /dev/null
+          ssh-keygen -F "[$SERVER_HOST]:$SERVER_PORT" -f "$private_dir/known_hosts" > /dev/null
+          timeout 45s ssh -F /dev/null -T -n \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityAgent=none \
+            -o StrictHostKeyChecking=yes -o PasswordAuthentication=no \
+            -o KbdInteractiveAuthentication=no -o ConnectionAttempts=1 \
+            -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 \
+            -o ClearAllForwardings=yes \
+            -o "UserKnownHostsFile=$private_dir/known_hosts" \
+            -i "$private_dir/id_ed25519" -p "$SERVER_PORT" "rul1@$SERVER_HOST" \
+            'printf "SSH_READ_ONLY_OK\n"; id -un; uname -s; df -h /'
+          printf '### SSH authentication: PASS\nRead-only identity and disk commands completed; no deployment.\n' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve connection report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v7
+        with:
+          name: server-connectivity-${{ github.run_id }}-${{ github.run_attempt }}
+          path: server-connectivity-evidence/
+          if-no-files-found: error
+          retention-days: 3
