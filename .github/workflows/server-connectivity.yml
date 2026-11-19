@@ -27,6 +27,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Install SSH password transport
         run: |
           if ! command -v sshpass >/dev/null; then
