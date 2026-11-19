@@ -38,7 +38,7 @@ def ready_path(video_id, generation):
 
 
 def master_url(video_id):
-    return f"/media/{video_id}/master.m3u8"
+    return f"{settings.PUBLIC_PATH}/media/{video_id}/master.m3u8"
 
 
 def playlist_lines(path):

@@ -40,7 +40,7 @@ def main():
                     observed['complete']={'status':value.status,'sent_parent':value.request.headers.get('traceparent'),
                         'traceparent':value.headers.get('traceparent'),'created':value.json()}
             page.on('request',request);page.on('response',response)
-            page.goto(base+'/',wait_until='domcontentloaded')
+            page.goto(base+'/studio',wait_until='domcontentloaded')
             page.get_by_role('button',name='Создать аккаунт',exact=True).click()
             page.locator('input[name=username]').fill('trace-ui-'+suffix[:10])
             page.locator('input[name=password]').fill('Test-only-'+suffix)

@@ -62,9 +62,18 @@ def check_page():
             page = browser.new_page()
             response = page.goto(BASE_URL + "/", wait_until="domcontentloaded", timeout=30000)
             if response is None or response.status != 200:
-                raise RuntimeError("The sign-in page did not return HTTP 200")
+                raise RuntimeError("The catalog did not return HTTP 200")
+            expect(page.locator("#catalog-title")).to_be_visible(timeout=10000)
+            picker = page.get_by_label("Оформление")
+            expect(picker).to_have_value("classic")
+            expect(picker.locator("option")).to_have_text(["Исходная", "Обсидиан", "Бордо"])
+            for theme in ("classic", "bordeaux", "noir"):
+                picker.select_option(theme)
+                expect(page.locator("html")).to_have_attribute("data-theme", theme)
+            page.goto(BASE_URL + "/account", wait_until="domcontentloaded")
+            expect(page.get_by_label("Оформление")).to_have_value("noir")
             expect(page.get_by_test_id("auth-screen")).to_be_visible(timeout=10000)
-            print(f"Chrome {browser.version}: HTTP 200 and visible Vue auth-screen", flush=True)
+            print(f"Chrome {browser.version}: HTTP 200 catalog and visible Vue auth-screen", flush=True)
         finally:
             browser.close()
     print("Chrome rendered the Vue sign-in screen.", flush=True)

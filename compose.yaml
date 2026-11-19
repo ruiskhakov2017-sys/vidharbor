@@ -15,6 +15,8 @@ x-django: &django
     RABBITMQ_USER: ${VIDHARBOR_RABBITMQ_USER:-vidharbor}
     MAX_UPLOAD_BYTES: ${VIDHARBOR_MAX_UPLOAD_BYTES:-5368709120}
     RESTORE_MODE: ${VIDHARBOR_RESTORE_MODE:-0}
+    PUBLIC_PATH: ${VIDHARBOR_BASE_PATH:-/}
+    DEMO_STUDIO: ${VIDHARBOR_DEMO_STUDIO:-0}
   volumes:
     - journal_data:/var/lib/vidharbor-journal
   secrets:
@@ -32,7 +34,10 @@ x-django-health: &django-health
 services:
   web:
     logging: *bounded-logging
-    build: ./web
+    build:
+      context: ./web
+      args:
+        VIDHARBOR_BASE_PATH: ${VIDHARBOR_BASE_PATH:-/}
     ports:
       - "127.0.0.1:${VIDHARBOR_PORT:-8085}:80"
     volumes:
@@ -115,6 +120,7 @@ services:
       DB_NAME: ${VIDHARBOR_DB_NAME:-vidharbor}
       DB_USER: ${VIDHARBOR_DB_USER:-vidharbor}
       RABBITMQ_USER: ${VIDHARBOR_RABBITMQ_USER:-vidharbor}
+      PUBLIC_PATH: ${VIDHARBOR_BASE_PATH:-/}
       PUBLIC_BASE_URL: ${VIDHARBOR_PUBLIC_BASE_URL:-http://127.0.0.1:${VIDHARBOR_PORT:-8085}}
       FFMPEG_TIMEOUT: ${VIDHARBOR_FFMPEG_TIMEOUT:-10800}
       RESTORE_MODE: ${VIDHARBOR_RESTORE_MODE:-0}

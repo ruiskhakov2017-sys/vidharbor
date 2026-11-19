@@ -1,7 +1,9 @@
 import json
 from functools import wraps
+from uuid import uuid4
 
-from django.contrib.auth import authenticate, login, logout
+from django.conf import settings
+from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.contrib.auth.forms import UserCreationForm
 from django.db import IntegrityError, transaction
 from django.http import JsonResponse
@@ -29,10 +31,14 @@ def json_object(request):
     return value if isinstance(value, dict) else {}
 
 
+def studio_author(request):
+    return request.user.is_authenticated and (settings.DEMO_STUDIO or not request.session.get("demo_guest"))
+
+
 def require_author(view):
     @wraps(view)
     def wrapped(request, *args, **kwargs):
-        if not request.user.is_authenticated:
+        if not studio_author(request):
             return error("Войдите в аккаунт.", 401)
         return view(request, *args, **kwargs)
 
@@ -41,7 +47,9 @@ def require_author(view):
 
 def session_data(request):
     return {
-        "username": request.user.get_username() if request.user.is_authenticated else None,
+        "username": request.user.get_username() if studio_author(request) else None,
+        "demo_studio": settings.DEMO_STUDIO,
+        "guest": bool(studio_author(request) and request.session.get("demo_guest")),
         "csrf_token": get_token(request),
     }
 
@@ -50,6 +58,20 @@ def session_data(request):
 @never_cache
 @ensure_csrf_cookie
 def session(request):
+    return JsonResponse(session_data(request))
+
+
+@require_POST
+@never_cache
+def guest(request):
+    if not settings.DEMO_STUDIO:
+        return error("Гостевая студия выключена.", 404)
+    if not request.user.is_authenticated:
+        # A guest owns videos through the same FK as a registered author.
+        # create_user with no password produces an unusable password.
+        author = get_user_model().objects.create_user(username=f"guest-{uuid4().hex}")
+        login(request, author)
+        request.session["demo_guest"] = True
     return JsonResponse(session_data(request))
 
 

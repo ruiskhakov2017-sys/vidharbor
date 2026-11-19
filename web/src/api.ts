@@ -1,4 +1,10 @@
-export type Session = { username: string | null; csrf_token: string };
+export const sitePrefix = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+export function sitePath(path: string) {
+  return sitePrefix + path;
+}
+
+export type Session = { username: string | null; demo_studio: boolean; guest: boolean; csrf_token: string };
 export type Video = {
   id: string; title: string; state: string; watch_url?: string;
   job_id?: string; can_retry?: boolean; retry_advice?: string;
@@ -18,7 +24,7 @@ export async function api<T>(
   path: string,
   options?: { csrf: string; data?: object; traceparent?: string },
 ): Promise<T> {
-  const response = await fetch(path, options ? {
+  const response = await fetch(sitePath(path), options ? {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRFToken": options.csrf,
       ...(options.traceparent ? { traceparent: options.traceparent } : {}) },
@@ -35,7 +41,7 @@ export async function api<T>(
 export function sendFile(id: string, file: File, csrf: string, onProgress: (percent: number) => void) {
   return new Promise<string | undefined>((resolve, reject) => {
     const request = new XMLHttpRequest();
-    request.open("PUT", "/api/uploads/" + id + "/content");
+    request.open("PUT", sitePath("/api/uploads/" + id + "/content"));
     request.responseType = "json";
     request.setRequestHeader("Content-Type", "application/octet-stream");
     request.setRequestHeader("X-CSRFToken", csrf);
