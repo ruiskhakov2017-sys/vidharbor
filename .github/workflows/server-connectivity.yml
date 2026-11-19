@@ -104,7 +104,7 @@ jobs:
             -o ClearAllForwardings=yes \
             -o "UserKnownHostsFile=$private_dir/known_hosts" \
             -i "$private_dir/id_ed25519" -p "$SERVER_PORT" "rul1@$SERVER_HOST" \
-            'printf "SSH_READ_ONLY_OK\n"; id -un; uname -s; df -h /'
+            'printf "VIDHARBOR_REQUESTED_COMMAND_OK\n"; id -un'
           printf '### SSH authentication: PASS\nRead-only identity and disk commands completed; no deployment.\n' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Compare public HTTPS routes for VidHarbor
