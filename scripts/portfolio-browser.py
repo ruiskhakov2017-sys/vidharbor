@@ -1,6 +1,6 @@
-import os
 from pathlib import Path
 import shutil
+import time
 import uuid
 from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright, expect
@@ -19,7 +19,7 @@ with sync_playwright() as pw:
     expect(page.get_by_label('Название видео')).to_be_visible()
     try:
         page.get_by_label('Название видео').fill(title)
-        page.get_by_label('Видеофайл').set_input_files(str(Path(os.environ['RUNNER_TEMP']) / 'vidharbor-fixture.mp4'))
+        page.get_by_label('Видеофайл').set_input_files(str(Path(__file__).with_name('portfolio-fixture.mp4')))
         page.get_by_role('button',name='Загрузить',exact=True).click()
         link=page.get_by_role('link',name='Готово · Смотреть')
         expect(link).to_be_visible(timeout=90000)
@@ -29,7 +29,14 @@ with sync_playwright() as pw:
         public.goto(watch,wait_until='domcontentloaded')
         expect(public.locator('#watch-title')).to_have_text(title)
         public.locator('video.player').evaluate('(v)=>{v.muted=true;return v.play()}')
-        public.wait_for_function("document.querySelector('video.player').currentTime > .5",timeout=18000)
+        player = public.locator('video.player')
+        end = time.monotonic() + 18
+        while time.monotonic() < end:
+            if player.evaluate('(video) => video.currentTime') > 0.5:
+                break
+            time.sleep(0.25)
+        else:
+            raise RuntimeError('Video did not advance beyond 0.5 seconds')
         print('Guest upload and anonymous HLS playback verified')
     finally:
         page.goto(base+'studio',wait_until='domcontentloaded')
