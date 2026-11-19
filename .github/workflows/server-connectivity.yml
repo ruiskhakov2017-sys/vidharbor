@@ -120,7 +120,7 @@ jobs:
 
           context = ssl.create_default_context()
           addresses = ["38.180.15.32", "62.197.45.154", "38.180.205.248"]
-          hosts = ["www.axyro.tech", "vidharbor.axyro.tech"]
+          hosts = ["www.axyro.tech", "portfolio.axyro.tech", "vidharbor.axyro.tech"]
 
           def probe(ip, host):
               result = {"ip": ip, "hostname": host}
@@ -135,6 +135,7 @@ jobs:
                           with http.client.HTTPResponse(tls) as response:
                               response.begin()
                               result["http_status"] = response.status
+                              result["server"] = response.getheader("Server")
                               if check_ready:
                                   result["ready"] = False
                                   if response.status == 200:
@@ -149,6 +150,18 @@ jobs:
           print(report)
           Path("server-connectivity-evidence/https.json").write_text(report + "\n")
           PYTHON
+
+      - name: Identify the leaf certificates offered on the primary IP
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          for host in portfolio.axyro.tech vidharbor.axyro.tech; do
+            echo "$host"
+            # Read the certificate offered for SNI. No HTTP request or credentials.
+            timeout 10 openssl s_client -connect "$SERVER_HOST:443" -servername "$host" </dev/null 2>/dev/null |
+              openssl x509 -noout -subject -issuer -serial -fingerprint -sha256
+          done | tee server-connectivity-evidence/certificates.txt
 
       - name: Preserve connection report
         if: always()
