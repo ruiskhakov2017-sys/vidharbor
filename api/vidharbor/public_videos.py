@@ -1,5 +1,6 @@
 import re
 
+from django.conf import settings
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.cache import never_cache
@@ -17,7 +18,7 @@ def published_videos():
 
 
 def watch_url(video_id):
-    return f"/watch/{video_id}"
+    return f"{settings.PUBLIC_PATH}/watch/{video_id}"
 
 
 def describe(video):

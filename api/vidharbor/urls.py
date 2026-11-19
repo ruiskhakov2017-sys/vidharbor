@@ -8,6 +8,7 @@ urlpatterns = [
     path("health/live", health.live, name="live"),
     path("health/ready", health.ready, name="ready"),
     path("api/auth/session", accounts.session),
+    path("api/auth/guest", accounts.guest),
     path("api/auth/register", accounts.register),
     path("api/auth/login", accounts.sign_in),
     path("api/auth/logout", accounts.sign_out),

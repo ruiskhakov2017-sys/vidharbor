@@ -1,8 +1,10 @@
 import { createApp, h, onBeforeUnmount, onMounted, ref } from "vue";
 
-import { api, ApiError, sendFile, type Session, type Video } from "./api";
+import { api, ApiError, sendFile, sitePath, sitePrefix, type Session, type Video } from "./api";
 import { PublicVideos } from "./public-videos";
 import "./style.css";
+import { ThemePicker } from "./themes";
+import "./themes.css";
 
 function messageOf(error: unknown) {
   return error instanceof Error ? error.message : "Сервис недоступен.";
@@ -10,8 +12,8 @@ function messageOf(error: unknown) {
 
 createApp({
   setup() {
-    const path = window.location.pathname;
-    if (path === "/catalog" || path.startsWith("/watch/")) {
+    const path = window.location.pathname.slice(sitePrefix.length).replace(/\/$/, "");
+    if (!path || path === "/catalog" || path.startsWith("/watch/")) {
       return () => h(PublicVideos, { videoId: path.startsWith("/watch/") ? path.slice(7) : "" });
     }
     const session = ref<Session>();
@@ -51,7 +53,7 @@ createApp({
     function refreshSession() {
       return run(async () => {
         session.value = await api<Session>("/api/auth/session");
-        if (session.value.username) await loadVideos();
+        if (session.value.username && !(path === "/account" && session.value.guest)) await loadVideos();
       });
     }
     onMounted(refreshSession);
@@ -113,8 +115,12 @@ createApp({
         error.value = "Выберите непустой файл.";
         return;
       }
-      const csrf = session.value.csrf_token;
+      const current = session.value;
       await run(async () => {
+        if (!current.username && current.demo_studio) {
+          session.value = await api<Session>("/api/auth/guest", { csrf: current.csrf_token });
+        }
+        const csrf = session.value!.csrf_token;
         progress.value = 0;
         status.value = "Передаём файл";
         try {
@@ -257,9 +263,13 @@ createApp({
     function cabinet() {
       return h("section", { "aria-labelledby": "cabinet-title" }, [
         h("div", { class: "cabinet-header" }, [
-          h("h2", { id: "cabinet-title" }, "Кабинет · " + session.value?.username),
-          h("button", { class: "secondary", disabled: busy.value, onClick: signOut }, "Выйти"),
+          h("h2", { id: "cabinet-title" }, session.value?.guest || !session.value?.username
+            ? "Загрузить видео" : "Кабинет · " + session.value.username),
+          session.value?.username && !session.value.guest
+            ? h("button", { class: "secondary", disabled: busy.value, onClick: signOut }, "Выйти") : null,
         ]),
+        session.value?.demo_studio && (!session.value.username || session.value.guest)
+          ? h("p", { class: "guest-note" }, "Управление вашими загрузками доступно в этом браузере, пока сохранены cookies студии.") : null,
         h("form", { key: "upload", onSubmit: submitUpload }, [
           h("label", ["Название видео", h("input", { name: "title", required: true, maxlength: 200 })]),
           h("label", ["Видеофайл", h("input", {
@@ -316,10 +326,18 @@ createApp({
       ]);
     }
 
-    return () => h("main", [
-      h("h1", "VidHarbor"),
-      h("nav", { class: "nav" }, [h("a", { href: "/catalog" }, "Каталог")]),
-      session.value?.username ? cabinet() : session.value ? credentials() : null,
+    function studioContent() {
+      const current = session.value;
+      if (!current) return null;
+      if (path === "/account" && current.guest) return credentials();
+      if (current.username || (current.demo_studio && path !== "/account")) return cabinet();
+      return credentials();
+    }
+
+    return () => h("main", { class: "studio" }, [
+      h("nav", { class: "studio-nav" }, [h("a", { href: sitePath("/") }, "← Каталог"), h(ThemePicker)]),
+      h("h1", "Творческая студия"),
+      studioContent(),
       !session.value && !busy.value
         ? h("button", { onClick: refreshSession }, "Повторить подключение")
         : null,

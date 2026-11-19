@@ -1,0 +1,10 @@
+# Insert these directives in the existing axyro.tech site block.
+redir /vidharbor /vidharbor/ 308
+handle_path /vidharbor/* {
+    reverse_proxy vidharbor-public-web:80 {
+        header_up Host axyro.tech
+        header_up X-Forwarded-Proto https
+        header_up -Authorization
+        header_up Cookie "vidharbor_sessionid={cookie.vidharbor_sessionid}; vidharbor_csrftoken={cookie.vidharbor_csrftoken}"
+    }
+}

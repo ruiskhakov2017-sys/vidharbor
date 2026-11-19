@@ -8,8 +8,9 @@ import {
   ref,
 } from "vue";
 
-import { api, ApiError } from "./api";
+import { api, ApiError, sitePath } from "./api";
 import "./public.css";
+import { theme, ThemePicker } from "./themes";
 
 type IconName =
   | "play"
@@ -442,7 +443,7 @@ export const PublicVideos = defineComponent({
       if (q) params.set("q", q);
       if (view !== "feed") params.set("view", view);
       if (topic !== "Все видео") params.set("topic", topic);
-      return "/catalog" + (params.size ? "?" + params.toString() : "");
+      return sitePath("/catalog") + (params.size ? "?" + params.toString() : "");
     }
     function rememberTopics(videos: PublicVideo[]) {
       topics.value = [
@@ -756,9 +757,9 @@ export const PublicVideos = defineComponent({
               : null,
           ]),
           h("div", { class: "sidebar-bottom" }, [
-            h("a", { href: "/", class: "sidebar-item" }, [
+            h("a", { href: sitePath("/studio"), class: "sidebar-item" }, [
               icon("plus"),
-              h("span", ["Кабинет автора", h("small", "Управление видео")]),
+              h("span", ["Творческая студия", h("small", "Загрузка и управление")]),
             ]),
             h("p", ["VidHarbor", h("span", "Видео. Люди. Идеи.")]),
           ]),
@@ -854,7 +855,9 @@ export const PublicVideos = defineComponent({
       );
     }
     function feed() {
-      const videos = filtered.value;
+      const spotlight = theme.value !== "classic" && feedView.value === "feed" &&
+        !searched.value && category.value === "Все видео" ? filtered.value[0] : undefined;
+      const videos = spotlight ? filtered.value.slice(1) : filtered.value;
       const firstBatch = largeCards.value ? 6 : 8;
       const showTopics =
         feedView.value === "feed" &&
@@ -862,7 +865,21 @@ export const PublicVideos = defineComponent({
         category.value === "Все видео" &&
         topics.value.length > 2 &&
         videos.length > firstBatch;
-      return showTopics
+      const feature = spotlight ? h("a", {
+        class: "spotlight", href: spotlight.watch_url,
+        "aria-label": "Смотреть: " + spotlight.title,
+      }, [
+        spotlight.thumbnail_url && !failedImages.value.has(spotlight.id)
+          ? h("img", { src: spotlight.thumbnail_url, alt: "", onError: () => {
+              failedImages.value = new Set([...failedImages.value, spotlight.id]);
+            } }) : null,
+        h("div", { class: "spotlight-copy" }, [
+          h("span", { class: "spotlight-section" }, "Последняя публикация"),
+          h("h2", spotlight.title),
+          h("span", { class: "spotlight-play" }, [icon("play"), "Смотреть"]),
+        ]),
+      ]) : null;
+      return [spotlight && h("div", { class: "spotlight-frame" }, [feature, saveButton(spotlight)]), showTopics
         ? [
             h(
               "ul",
@@ -897,7 +914,7 @@ export const PublicVideos = defineComponent({
             "ul",
             { class: "video-grid" },
             videos.map((item) => card(item)),
-          );
+          )];
     }
     function skeleton() {
       return h("div", { class: "catalog-loading", role: "status" }, [
@@ -956,7 +973,7 @@ export const PublicVideos = defineComponent({
               h(
                 "a",
                 {
-                  href: "/catalog",
+                  href: sitePath("/catalog"),
                   class: "brand",
                   "aria-label": "VidHarbor — каталог",
                 },
@@ -967,15 +984,7 @@ export const PublicVideos = defineComponent({
               ),
             ]),
             search(),
-            h(
-              "a",
-              {
-                href: "/",
-                class: "upload-link",
-                "aria-label": "Загрузить видео",
-              },
-              [icon("plus"), h("span", "Загрузить видео")],
-            ),
+            h(ThemePicker),
           ]),
           sidebar(),
           menuOpen.value
@@ -992,7 +1001,7 @@ export const PublicVideos = defineComponent({
             isWatch
               ? [
                   h("div", { class: "watch-topline" }, [
-                    h("a", { href: "/catalog", class: "back-link" }, [
+                    h("a", { href: sitePath("/catalog"), class: "back-link" }, [
                       icon("back"),
                       "В каталог",
                     ]),
@@ -1283,7 +1292,7 @@ export const PublicVideos = defineComponent({
                             ? topicGrid()
                             : filtered.value.length
                               ? feed()
-                              : h("div", { class: "empty-state" }, [
+                              : h("div", { class: ["empty-state", { "empty-collection": !searched.value && feedView.value === "feed" && !items.value.length }] }, [
                                   h("span", { class: "empty-icon" }, [
                                     icon("search"),
                                   ]),

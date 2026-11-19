@@ -6,7 +6,8 @@ RUN npm ci --no-audit --no-fund
 COPY index.html tsconfig.json ./
 COPY src/ src/
 COPY public/ public/
-RUN npm run build
+ARG VIDHARBOR_BASE_PATH=/
+RUN npm run build -- --base "$VIDHARBOR_BASE_PATH"
 
 FROM nginx:stable-alpine@sha256:583b7f2fce1cdb8da5ad5c39ebd3c33b98b87d493190e548bdee1fa8c619c311
 RUN addgroup -g 65532 vidharbor && adduser -D -H -u 65532 -G vidharbor vidharbor \

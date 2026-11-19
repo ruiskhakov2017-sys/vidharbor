@@ -37,7 +37,7 @@ def require(response, expected=200):
 
 
 def login_via_ui(page, username, password):
-    page.goto(BASE, wait_until="domcontentloaded")
+    page.goto(BASE + "/studio", wait_until="domcontentloaded")
     page.get_by_role("button", name="Создать аккаунт").click()
     page.get_by_label("Имя пользователя").fill(username)
     page.get_by_label("Пароль").fill(password)
@@ -201,7 +201,7 @@ def main():
             try:
                 page = browser.new_page()
                 page.goto(BASE + "/catalog", wait_until="domcontentloaded")
-                page.get_by_label("Название видео").fill("гОРИЗОНТ " + suffix)
+                page.get_by_role("searchbox", name="Поиск видео").fill("гОРИЗОНТ " + suffix)
                 page.get_by_role("button", name="Найти").click()
                 page.get_by_role("link", name=details["landscape.mp4"]["title"]).click()
                 expect(page.get_by_role("heading", name=details["landscape.mp4"]["title"])).to_be_visible()

@@ -25,7 +25,7 @@ def exec_service(*args):
 
 
 def register_and_sign_in(page, username, password):
-    page.goto(BASE_URL)
+    page.goto(BASE_URL + "/studio")
     page.get_by_role("button", name="Создать аккаунт").click()
     page.get_by_label("Имя пользователя").fill(username)
     page.get_by_label("Пароль", exact=True).fill(password)

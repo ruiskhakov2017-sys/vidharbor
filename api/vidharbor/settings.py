@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 
 
@@ -33,6 +34,15 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
 ]
+# The ingress removes the mount point before proxying. Internal routes stay at /.
+PUBLIC_PATH = os.environ.get("PUBLIC_PATH", "/").rstrip("/")
+if PUBLIC_PATH and not re.fullmatch(r"(/[A-Za-z0-9_-]+)+", PUBLIC_PATH):
+    raise ValueError("PUBLIC_PATH must be a site-local path prefix")
+if PUBLIC_PATH:
+    SESSION_COOKIE_PATH = CSRF_COOKIE_PATH = PUBLIC_PATH + "/"
+    SESSION_COOKIE_NAME = "vidharbor_sessionid"
+    CSRF_COOKIE_NAME = "vidharbor_csrftoken"
+
 CSRF_FAILURE_VIEW = "vidharbor.accounts.csrf_failure"
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = os.environ.get("SECURE_COOKIES") == "1"
@@ -70,6 +80,7 @@ RABBITMQ_PASSWORD = read_secret("rabbitmq_password")
 
 MEDIA_ROOT = Path("/var/lib/vidharbor")
 JOURNAL_ROOT = Path(os.getenv("JOURNAL_ROOT", "/var/lib/vidharbor-journal"))
+DEMO_STUDIO = os.getenv("DEMO_STUDIO") == "1"
 RESTORE_MODE = os.getenv("RESTORE_MODE", "0") == "1"
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://127.0.0.1:8085").rstrip("/")
 FFMPEG_TIMEOUT = int(os.getenv("FFMPEG_TIMEOUT", "10800"))
