@@ -107,6 +107,49 @@ jobs:
             'printf "SSH_READ_ONLY_OK\n"; id -un; uname -s; df -h /'
           printf '### SSH authentication: PASS\nRead-only identity and disk commands completed; no deployment.\n' >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Compare public HTTPS routes for VidHarbor
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          python3 - <<'PYTHON'
+          import http.client
+          import json
+          import socket
+          import ssl
+          from pathlib import Path
+
+          context = ssl.create_default_context()
+          addresses = ["38.180.15.32", "62.197.45.154", "38.180.205.248"]
+          hosts = ["www.axyro.tech", "vidharbor.axyro.tech"]
+
+          def probe(ip, host):
+              result = {"ip": ip, "hostname": host}
+              check_ready = host == "vidharbor.axyro.tech"
+              path = "/health/ready" if check_ready else "/"
+              try:
+                  with socket.create_connection((ip, 443), timeout=5) as tcp:
+                      with context.wrap_socket(tcp, server_hostname=host) as tls:
+                          result["certificate_serial"] = tls.getpeercert()["serialNumber"]
+                          request = f"GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+                          tls.sendall(request.encode("ascii"))
+                          with http.client.HTTPResponse(tls) as response:
+                              response.begin()
+                              result["http_status"] = response.status
+                              if check_ready:
+                                  result["ready"] = False
+                                  if response.status == 200:
+                                      data = json.loads(response.read(8192))
+                                      result["ready"] = isinstance(data, dict) and data.get("status") == "ready" and data.get("checks") == {"postgres": True, "rabbitmq": True}
+              except (OSError, ValueError, http.client.HTTPException) as error:
+                  result["error"] = str(error)
+              return result
+
+          results = [probe(ip, host) for ip in addresses for host in hosts]
+          report = json.dumps(results, indent=2)
+          print(report)
+          Path("server-connectivity-evidence/https.json").write_text(report + "\n")
+          PYTHON
+
       - name: Preserve connection report
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v7
