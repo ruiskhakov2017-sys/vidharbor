@@ -207,6 +207,7 @@ class Webhook:
         timestamp = str(int(now.timestamp()))
         request = Request(self.url, data=body, method="POST", headers={
             "Content-Type": "application/json",
+            "User-Agent": "VidHarbor/1.0",
             "X-VidHarbor-Timestamp": timestamp,
             "X-VidHarbor-Signature": signature(self.secret, timestamp, body),
         })
