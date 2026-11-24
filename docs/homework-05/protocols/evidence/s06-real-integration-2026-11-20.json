@@ -1,0 +1,67 @@
+{
+  "date": "2026-11-20",
+  "timezone": "UTC+03:00",
+  "source_scope": "Sanitized extract from saved test results and the session log. Times marked recorded_at are local evidence recording times.",
+  "ready": {
+    "source": "public_ready_event.json",
+    "ready_at": "2026-11-20T17:52:48+03:00",
+    "event_id": "a01fa75b-45af-4602-84ec-7bdf5555add8",
+    "sheet_tab": "Videos",
+    "sheet_row": 3
+  },
+  "test_workflow": {
+    "real_google_sheets": true,
+    "earlier_failure": {
+      "source": "api-test-result.json",
+      "recorded_at": "2026-11-20T15:52:10+03:00",
+      "execution_id": 524338,
+      "http_status": 503,
+      "signature_accepted": true,
+      "row_written": false
+    },
+    "later_row_2_probe": {
+      "source": "native_write_probe.json",
+      "recorded_at": "2026-11-20T17:16:05+03:00",
+      "http_status": 200,
+      "result": "written",
+      "sheet_row": 2
+    },
+    "ready_delivery": {
+      "source": "public_delivery_probe.json",
+      "recorded_at": "2026-11-20T17:58:35+03:00",
+      "initial_execution_id": 524975,
+      "replay_execution_id": 524976,
+      "initial_result": "written",
+      "replay_result": "written",
+      "ack_http_status": 200,
+      "same_event_and_row": true,
+      "write_count": 1,
+      "rows_read_back": [
+        2,
+        3
+      ],
+      "watch_http_status": 200
+    }
+  },
+  "working_workflow": {
+    "source": "Session log, 2026-11-20",
+    "probes": {
+      "recorded_at": "2026-11-20T18:49:49+03:00",
+      "delivery": "written",
+      "replay": "written",
+      "invalid_signature_http_status": 403,
+      "row_conflict_http_status": 409
+    },
+    "postgres_receipt": {
+      "recorded_at": "2026-11-20T18:51:00+03:00",
+      "status": "WRITTEN",
+      "sheet_row": 3,
+      "attempts": 1,
+      "next_sheet_row": 4
+    },
+    "confirmed_active_at": "2026-11-20T18:59:40+03:00",
+    "execution_id": null,
+    "first_new_automatic_delivery_confirmed": false,
+    "long_sheets_outage_with_automatic_recovery_tested": false
+  }
+}
